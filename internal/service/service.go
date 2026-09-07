@@ -6,11 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/auth"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/fleet"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/geo"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/matching"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/pricing"
@@ -35,6 +37,11 @@ type Config struct {
 	// pasajero y es ingreso de la plataforma: no entra en el reparto, así que
 	// quien organiza sigue sin ganar dinero.
 	ComisionBps int64
+	// Flota es la frontera con el servicio de robotaxis. Por defecto, el modo
+	// de traspaso: la app no pide el coche, lo pide una persona.
+	Flota fleet.Provider
+	// Log recoge los avisos que no impiden seguir.
+	Log *slog.Logger
 	// Identidad verifica quién es cada persona. Sin él no se pueden acreditar
 	// identidades, y ningún trayecto que exija nivel verificado admitirá a
 	// nadie: es deliberado, preferimos no dar viajes a darlos sin verificar.
@@ -67,6 +74,9 @@ func New(s store.Store, cfg Config) *Service {
 	}
 	if cfg.Router == nil {
 		cfg.Router = routing.NewStraightLine(cfg.SpeedKmh)
+	}
+	if cfg.Flota == nil {
+		cfg.Flota = fleet.NewTraspaso()
 	}
 	return &Service{store: s, cfg: cfg}
 }

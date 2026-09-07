@@ -81,6 +81,10 @@ type Trip struct {
 	// DurationMin es el tiempo estimado del trayecto. Con rutas reales lo da
 	// el motor de rutas; si no, se estima con una velocidad media.
 	DurationMin float64 `json:"duration_min"`
+	// FleetRideRef es la referencia del viaje en la flota. En el modelo de
+	// traspaso la introduce quien organiza tras pedir el coche en la app de
+	// Tesla, y es lo único que ata este trayecto con el viaje real.
+	FleetRideRef string `json:"fleet_ride_ref,omitempty"`
 	// RouteSource dice de dónde salió la ruta ("osrm", "straight_line"), para
 	// no confundir una estimación con una ruta de calle real.
 	RouteSource   string      `json:"route_source"`

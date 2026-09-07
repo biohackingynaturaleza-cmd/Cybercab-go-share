@@ -419,3 +419,29 @@ func abs(v float64) float64 {
 	}
 	return v
 }
+
+func TestPostgresUnaReferenciaDeViajeNoPuedeEstarEnDosTrayectos(t *testing.T) {
+	// Sería el mismo viaje de Tesla cobrado dos veces.
+	pg := newPostgres(t)
+	nuevoUsuario(t, pg, "usr_1", "ana@example.com")
+
+	a := nuevoTrayecto(t, pg, "trip_a", "usr_1", geo.Route{downtown, airport}, 3)
+	a.FleetRideRef = "tesla-ride-99"
+	if err := pg.UpdateTrip(a); err != nil {
+		t.Fatalf("UpdateTrip: %v", err)
+	}
+
+	b := nuevoTrayecto(t, pg, "trip_b", "usr_1", geo.Route{downtown, airport}, 3)
+	b.FleetRideRef = "tesla-ride-99"
+	if err := pg.UpdateTrip(b); !errors.Is(err, store.ErrReferenciaDeFlotaEnUso) {
+		t.Fatalf("error = %v, esperaba ErrReferenciaDeFlotaEnUso", err)
+	}
+}
+
+func TestPostgresVariosTrayectosPuedenNoTenerReferencia(t *testing.T) {
+	// El índice único es parcial: la cadena vacía no choca consigo misma.
+	pg := newPostgres(t)
+	nuevoUsuario(t, pg, "usr_1", "ana@example.com")
+	nuevoTrayecto(t, pg, "trip_a", "usr_1", geo.Route{downtown, airport}, 3)
+	nuevoTrayecto(t, pg, "trip_b", "usr_1", geo.Route{downtown, airport}, 3)
+}

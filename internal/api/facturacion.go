@@ -3,6 +3,8 @@ package api
 import (
 	"net/http"
 	"time"
+
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/service"
 )
 
 type completarViajeRequest struct {
@@ -20,7 +22,12 @@ func (s *Server) completarViaje(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	t, entries, err := s.svc.CompletarViaje(r.PathValue("id"), actor(r), req.ImporteRealCents)
+	t, entries, err := s.svc.CompletarViaje(service.CierreInput{
+		TripID:           r.PathValue("id"),
+		HostID:           actor(r),
+		ImporteRealCents: req.ImporteRealCents,
+		RefViaje:         req.RefViaje,
+	})
 	if err != nil {
 		writeError(w, err)
 		return

@@ -26,7 +26,10 @@ func viajeCompletado(t *testing.T, importeReal int64) (escenario, []billing.Entr
 		t.Fatalf("DecideBooking: %v", err)
 	}
 
-	_, entries, err := e.svc.CompletarViaje(e.trip.ID, e.host.ID, importeReal)
+	_, entries, err := e.svc.CompletarViaje(CierreInput{
+		TripID: e.trip.ID, HostID: e.host.ID, ImporteRealCents: importeReal,
+		RefViaje: "tesla-" + e.trip.ID,
+	})
 	if err != nil {
 		t.Fatalf("CompletarViaje: %v", err)
 	}
@@ -136,14 +139,14 @@ func TestNoSePuedeCerrarDosVecesElMismoViaje(t *testing.T) {
 	// Cerrar dos veces duplicaría los apuntes y cobraría dos veces.
 	e, _ := viajeCompletado(t, 0)
 
-	if _, _, err := e.svc.CompletarViaje(e.trip.ID, e.host.ID, 0); !errors.Is(err, ErrViajeNoCompletable) {
+	if _, _, err := e.svc.CompletarViaje(CierreInput{TripID: e.trip.ID, HostID: e.host.ID}); !errors.Is(err, ErrViajeNoCompletable) {
 		t.Fatalf("error = %v, esperaba ErrViajeNoCompletable", err)
 	}
 }
 
 func TestSoloQuienOrganizaCierraElViaje(t *testing.T) {
 	e := nuevoEscenario(t, domain.VehicleModelY, trust.LevelNuevo)
-	if _, _, err := e.svc.CompletarViaje(e.trip.ID, e.pasajero.ID, 0); !errors.Is(err, ErrNoAutorizado) {
+	if _, _, err := e.svc.CompletarViaje(CierreInput{TripID: e.trip.ID, HostID: e.pasajero.ID}); !errors.Is(err, ErrNoAutorizado) {
 		t.Fatalf("error = %v, esperaba ErrNoAutorizado", err)
 	}
 }
@@ -157,7 +160,7 @@ func TestNoSeCobraAQuienNoLlegoASubirse(t *testing.T) {
 	}
 	// Se queda en pendiente: nadie la confirma.
 
-	_, entries, err := e.svc.CompletarViaje(e.trip.ID, e.host.ID, 0)
+	_, entries, err := e.svc.CompletarViaje(CierreInput{TripID: e.trip.ID, HostID: e.host.ID})
 	if err != nil {
 		t.Fatalf("CompletarViaje: %v", err)
 	}
@@ -214,5 +217,35 @@ func TestUnPeriodoDelReVesSeRechaza(t *testing.T) {
 	ahora := time.Now().UTC()
 	if _, err := e.svc.LiquidarPeriodo(ahora, ahora.Add(-time.Hour)); !errors.Is(err, domain.ErrValidation) {
 		t.Fatalf("error = %v, esperaba un error de validación", err)
+	}
+}
+
+func TestLaReferenciaDelViajeSeGuarda(t *testing.T) {
+	// Antes la API la aceptaba y la tiraba: quien la enviaba creía que quedaba
+	// registrada y no quedaba nada.
+	e, _ := viajeCompletado(t, 0)
+
+	trip, err := e.svc.GetTrip(e.trip.ID)
+	if err != nil {
+		t.Fatalf("GetTrip: %v", err)
+	}
+	if trip.FleetRideRef == "" {
+		t.Fatal("la referencia del viaje en la flota no se guardó")
+	}
+	if trip.FleetRideRef != "tesla-"+e.trip.ID {
+		t.Fatalf("referencia = %q", trip.FleetRideRef)
+	}
+}
+
+func TestCerrarSinReferenciaSigueFuncionando(t *testing.T) {
+	// La referencia es deseable, no obligatoria: no se puede bloquear el cierre
+	// de un viaje porque alguien no la copie.
+	e := nuevoEscenario(t, domain.VehicleModelY, trust.LevelNuevo)
+	trip, _, err := e.svc.CompletarViaje(CierreInput{TripID: e.trip.ID, HostID: e.host.ID})
+	if err != nil {
+		t.Fatalf("CompletarViaje: %v", err)
+	}
+	if trip.FleetRideRef != "" {
+		t.Errorf("referencia = %q, esperaba vacía", trip.FleetRideRef)
 	}
 }

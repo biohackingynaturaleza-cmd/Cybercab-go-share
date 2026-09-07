@@ -8,6 +8,7 @@ import (
 
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/billing"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/fleet"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/pricing"
 )
 
@@ -22,12 +23,26 @@ const ComisionPorDefectoBps int64 = 2000
 // cerrarse.
 var ErrViajeNoCompletable = errors.New("este trayecto no se puede dar por completado")
 
+// CierreInput son los datos con los que quien organiza cierra un trayecto.
+type CierreInput struct {
+	TripID string
+	HostID string
+	// ImporteRealCents es lo que de verdad cobró la flota. Si se informa,
+	// manda sobre nuestra estimación.
+	ImporteRealCents int64
+	// RefViaje es la referencia del viaje en la app de Tesla. En el modelo de
+	// traspaso es lo único que ata este trayecto con el viaje real, así que sin
+	// ella no se puede auditar ni reclamar nada.
+	RefViaje string
+}
+
 // CompletarViaje cierra un trayecto y escribe en el libro lo que cada cual debe.
 //
 // No cobra nada: solo anota. El dinero se mueve una vez por periodo, en la
 // liquidación, porque cobrar viaje a viaje se lleva en comisiones del
 // procesador prácticamente todo el ingreso.
-func (s *Service) CompletarViaje(tripID, hostID string, importeRealCents int64) (*domain.Trip, []billing.Entry, error) {
+func (s *Service) CompletarViaje(in CierreInput) (*domain.Trip, []billing.Entry, error) {
+	tripID, hostID, importeRealCents := in.TripID, in.HostID, in.ImporteRealCents
 	t, err := s.store.GetTrip(tripID)
 	if err != nil {
 		return nil, nil, err
@@ -109,11 +124,33 @@ func (s *Service) CompletarViaje(tripID, hostID string, importeRealCents int64) 
 		}
 	}
 
+	if in.RefViaje != "" {
+		t.FleetRideRef = in.RefViaje
+		// Se registra también en el proveedor de flota, que es quien lleva el
+		// estado del viaje real.
+		if s.cfg.Flota != nil {
+			if tp, ok := s.cfg.Flota.(*fleet.Traspaso); ok {
+				if _, err := tp.Registrar(in.RefViaje); err != nil {
+					// Que la referencia ya estuviera registrada no debe impedir
+					// cerrar el viaje: el almacén tiene su propia unicidad.
+					s.log("no se pudo registrar la referencia en la flota", err)
+				}
+			}
+		}
+	}
+
 	t.Status = domain.TripCompleted
 	if err := s.store.UpdateTrip(t); err != nil {
 		return nil, nil, err
 	}
 	return t, entries, nil
+}
+
+// log deja constancia de un problema que no impide seguir.
+func (s *Service) log(msg string, err error) {
+	if s.cfg.Log != nil {
+		s.cfg.Log.Warn(msg, "err", err)
+	}
 }
 
 // LiquidarPeriodo cierra un periodo: compensa saldos y produce una sola
