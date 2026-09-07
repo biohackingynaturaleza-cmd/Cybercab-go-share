@@ -25,6 +25,9 @@ type Server struct {
 	// devIdentidad solo está presente en desarrollo: permite resolver
 	// verificaciones a mano. Ver WithDevIdentityResolver.
 	devIdentidad *trust.Manual
+	// persona está presente cuando el proveedor real de identidad está
+	// configurado, y es quien valida la firma de sus avisos.
+	persona *trust.Persona
 }
 
 // NewServer construye el manejador HTTP con todas las rutas registradas.
@@ -45,6 +48,10 @@ func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger, o
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /api/v1/zonas", s.zonas)
 	mux.HandleFunc("GET /api/v1/config", s.config)
+
+	// Avisos del proveedor de identidad. Pública porque la llama el proveedor;
+	// lo que la protege es la firma del cuerpo, no un token.
+	mux.HandleFunc("POST /api/v1/webhooks/identidad", s.webhookPersona)
 
 	// Acceso
 	mux.HandleFunc("POST /api/v1/auth/register", s.register)

@@ -39,7 +39,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	identidad := buildIdentityProvider(log)
+	identidad, personaReal := buildIdentityProvider(log)
 
 	db, closeDB, err := buildStore(context.Background(), log)
 	if err != nil {
@@ -67,7 +67,7 @@ func main() {
 	addr := ":" + envString("PORT", "8080")
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           api.NewServer(svc, tokens, log, devOptions(identidad)...),
+		Handler:           api.NewServer(svc, tokens, log, opcionesDeServidor(identidad, personaReal)...),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -143,33 +143,74 @@ func buildTokenIssuer(log *slog.Logger) (*auth.TokenIssuer, error) {
 
 // buildIdentityProvider elige quién acredita las identidades.
 //
-// En producción es obligatorio un proveedor real: sin él, nadie llega a nivel
-// verificado y ningún trayecto que lo exija admite pasajeros. Es deliberado:
-// preferimos no dar viajes a darlos sin saber quién viaja.
-func buildIdentityProvider(log *slog.Logger) trust.Provider {
-	// IDENTITY_PROVIDER_URL queda preparado para el proveedor real (Stripe
-	// Identity, Onfido, Persona). Mientras no exista, solo el modo manual.
-	if os.Getenv("ENV") == "production" {
-		log.Error("no hay proveedor de identidad configurado: " +
-			"nadie podrá acreditar su identidad y los trayectos que la exijan quedarán vacíos")
-	} else {
-		log.Warn("proveedor de identidad en modo manual: NO verifica nada, solo desarrollo")
+// Con PERSONA_API_KEY se usa Persona. Sin ella queda el modo manual, que no
+// verifica nada: en producción eso significa que nadie alcanza el nivel
+// verificado y ningún Cybercab admite pasajeros. Es el fallo seguro correcto —
+// preferimos no dar viajes a darlos sin saber quién viaja— pero conviene que
+// se vea en los registros.
+func buildIdentityProvider(log *slog.Logger) (trust.Provider, *trust.Persona) {
+	clave := os.Getenv("PERSONA_API_KEY")
+	if clave == "" {
+		if os.Getenv("ENV") == "production" {
+			log.Error("sin PERSONA_API_KEY nadie podrá acreditar su identidad, " +
+				"y los trayectos que la exijan quedarán vacíos")
+		} else {
+			log.Warn("proveedor de identidad en modo manual: NO verifica nada, solo desarrollo")
+		}
+		return trust.NewManual(envString("PUBLIC_URL", "http://localhost:8080")), nil
 	}
-	return trust.NewManual(envString("PUBLIC_URL", "http://localhost:8080"))
+
+	plantillas := map[trust.CheckKind]string{}
+	// Una sola plantilla puede acreditar documento y cara a la vez, que es
+	// como lo hacen los proveedores: un trámite, no dos.
+	if id := os.Getenv("PERSONA_TEMPLATE_ID"); id != "" {
+		plantillas[trust.CheckGovernmentID] = id
+		plantillas[trust.CheckSelfie] = id
+	}
+	for variable, kind := range map[string]trust.CheckKind{
+		"PERSONA_TEMPLATE_EMAIL": trust.CheckEmail,
+		"PERSONA_TEMPLATE_PHONE": trust.CheckPhone,
+	} {
+		if id := os.Getenv(variable); id != "" {
+			plantillas[kind] = id
+		}
+	}
+
+	p, err := trust.NewPersona(trust.PersonaConfig{
+		APIKey:            clave,
+		Plantillas:        plantillas,
+		WebhookSecret:     os.Getenv("PERSONA_WEBHOOK_SECRET"),
+		AceptarCompletado: os.Getenv("PERSONA_ACEPTAR_COMPLETADO") == "1",
+	})
+	if err != nil {
+		log.Error("Persona mal configurado, se sigue en modo manual", "err", err)
+		return trust.NewManual(envString("PUBLIC_URL", "http://localhost:8080")), nil
+	}
+	if os.Getenv("PERSONA_WEBHOOK_SECRET") == "" {
+		log.Warn("sin PERSONA_WEBHOOK_SECRET los avisos se rechazarán: " +
+			"las verificaciones solo se resolverán al consultarlas")
+	}
+	log.Info("proveedor de identidad: Persona", "comprobaciones", len(plantillas))
+	return p, p
 }
 
 // buildRouter elige el motor de rutas: OSRM si hay servidor configurado, con
 // respaldo en línea recta para que un fallo del proveedor no tumbe la app.
-// devOptions activa los atajos de desarrollo. En producción devuelve nada: el
-// endpoint que resuelve verificaciones a mano no debe existir siquiera.
-func devOptions(identidad trust.Provider) []api.Option {
+// opcionesDeServidor conecta el proveedor real y, fuera de producción, los
+// atajos de desarrollo. El endpoint que resuelve verificaciones a mano no debe
+// existir siquiera en producción.
+func opcionesDeServidor(identidad trust.Provider, persona *trust.Persona) []api.Option {
+	var opts []api.Option
+	if persona != nil {
+		opts = append(opts, api.WithPersona(persona))
+	}
 	if os.Getenv("ENV") == "production" {
-		return nil
+		return opts
 	}
 	if m, ok := identidad.(*trust.Manual); ok {
-		return []api.Option{api.WithDevIdentityResolver(m)}
+		opts = append(opts, api.WithDevIdentityResolver(m))
 	}
-	return nil
+	return opts
 }
 
 func buildRouter(log *slog.Logger, speedKmh float64) routing.Router {

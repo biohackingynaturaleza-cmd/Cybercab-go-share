@@ -125,13 +125,67 @@ func (s *Service) RefrescarVerificacion(ctx context.Context, providerRef string)
 		return check, nil
 	}
 
-	check.Status = outcome.Status
-	check.RejectionReason = outcome.Reason
-	if outcome.Status == trust.StatusVerified {
-		check.VerifiedAt = s.cfg.Now()
-		check.ExpiresAt = outcome.DocumentExpiresAt
+	if err := s.aplicarVeredicto(check, outcome); err != nil {
+		return nil, err
 	}
-	if err := s.store.UpdateCheck(check); err != nil {
+	return check, nil
+}
+
+// aplicarVeredicto escribe el resultado en la comprobación y en las demás que
+// ese mismo trámite acredite.
+//
+// Un mismo trámite puede resolver varias: los proveedores comprueban el
+// documento y la cara en un solo paso, y hacer repetirlo sería absurdo.
+func (s *Service) aplicarVeredicto(check *trust.Check, outcome *trust.Outcome) error {
+	aplicar := func(c *trust.Check) error {
+		c.Status = outcome.Status
+		c.RejectionReason = outcome.Reason
+		if outcome.Status == trust.StatusVerified {
+			c.VerifiedAt = s.cfg.Now()
+			c.ExpiresAt = outcome.DocumentExpiresAt
+		}
+		return s.store.UpdateCheck(c)
+	}
+	if err := aplicar(check); err != nil {
+		return err
+	}
+	if outcome.Status != trust.StatusVerified || len(outcome.Cubre) == 0 {
+		return nil
+	}
+
+	// Las demás comprobaciones que cubre este trámite. Solo se tocan las que
+	// siguen pendientes: un rechazo anterior no se pisa.
+	otras, err := s.store.ChecksByUser(check.UserID)
+	if err != nil {
+		return err
+	}
+	for i := range otras {
+		c := otras[i]
+		if c.ID == check.ID || c.Status != trust.StatusPending || !outcome.Acredita(c.Kind) {
+			continue
+		}
+		if err := aplicar(&c); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// AplicarAvisoDeIdentidad procesa el aviso que envía el proveedor cuando
+// resuelve una verificación.
+//
+// Es el camino normal; RefrescarVerificacion existe para reconciliar cuando el
+// aviso no llega. Los dos acaban en el mismo sitio, y ninguno reabre algo ya
+// resuelto.
+func (s *Service) AplicarAvisoDeIdentidad(ref string, outcome *trust.Outcome) (*trust.Check, error) {
+	check, err := s.store.GetCheckByRef(ref)
+	if err != nil {
+		return nil, err
+	}
+	if check.Status != trust.StatusPending || outcome.Status == trust.StatusPending {
+		return check, nil
+	}
+	if err := s.aplicarVeredicto(check, outcome); err != nil {
 		return nil, err
 	}
 	return check, nil

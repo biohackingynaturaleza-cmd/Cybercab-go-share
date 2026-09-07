@@ -63,14 +63,14 @@ despliegue en un problema serio y silencioso.
 
 ### Antes de abrir a usuarios reales
 
-**Falta contratar un proveedor de identidad.** El que hay es manual y da por
-buena cualquier verificación: sirve para desarrollo y nada más. Sin uno real,
-nadie alcanza el nivel verificado y ningún Cybercab admite pasajeros — que es el
-fallo seguro correcto, pero también significa que la app no convierte a nadie.
+**Hay que dar de alta la cuenta de Persona.** El código está hecho; falta crear
+la cuenta, la plantilla de verificación y poner cuatro variables de entorno. Sin
+eso la app arranca en modo manual, que da por buena cualquier verificación y
+solo sirve para desarrollo.
 
-Persona ofrece 500 verificaciones de documento al mes gratis y Stripe Identity
-cobra 1,50 $ por verificación superada, sin contrato ni mínimos. Conectar uno es
-implementar `trust.Provider`; no hay que rediseñar nada.
+Paso a paso en
+[`verificacion-de-identidad.md`](verificacion-de-identidad.md). Son 500
+verificaciones al mes gratis, sin contrato.
 
 El resto de lo que queda antes de operar está en
 [`viabilidad-legal.md`](viabilidad-legal.md).

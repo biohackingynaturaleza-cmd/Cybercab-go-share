@@ -26,6 +26,24 @@ type Outcome struct {
 	DocumentExpiresAt time.Time
 	// Reason explica un rechazo sin arrastrar datos personales.
 	Reason string
+	// Cubre son las comprobaciones que este veredicto acredita. Suele ser solo
+	// la que se pidió, pero un mismo trámite puede resolver varias: los
+	// proveedores serios comprueban el documento y la cara en un único paso, y
+	// obligar a la persona a repetirlo dos veces sería absurdo.
+	Cubre []CheckKind
+}
+
+// Acredita indica si el veredicto cubre esa comprobación.
+func (o Outcome) Acredita(k CheckKind) bool {
+	if len(o.Cubre) == 0 {
+		return true // sin detalle, vale para la que se pidió
+	}
+	for _, c := range o.Cubre {
+		if c == k {
+			return true
+		}
+	}
+	return false
 }
 
 // Provider verifica identidades contra un servicio externo (Stripe Identity,

@@ -52,8 +52,12 @@ marcando documentos vencidos.
 
 **Nunca se guarda el documento ni la fotografía.** Solo la referencia del
 proveedor externo y el veredicto. Una filtración de esta base de datos no expone
-el documento de identidad de nadie. El proveedor (Stripe Identity, Onfido,
-Persona…) está detrás de una interfaz para no atarse a ninguno.
+el documento de identidad de nadie.
+
+El proveedor está detrás de una interfaz de tres métodos. **Persona viene
+implementado**: bastan cuatro variables de entorno para que la app empiece a
+verificar identidades de verdad, con webhook firmado y 500 verificaciones al mes
+gratis. Ver [`docs/verificacion-de-identidad.md`](docs/verificacion-de-identidad.md).
 
 Cuando alguien no alcanza el nivel, el rechazo dice **qué le falta y por qué**,
 no solo que no.
@@ -306,9 +310,8 @@ Ver [`docs/modelo-de-negocio.md`](docs/modelo-de-negocio.md).
 
 ## Lo que falta
 
-1. **Proveedor de identidad real.** El que hay es manual y no verifica nada:
-   solo sirve para desarrollo. Sin uno real, nadie llega a verificado y ningún
-   Cybercab admite pasajeros — que es el fallo seguro correcto.
+1. **Dar de alta la cuenta de Persona.** El código está; falta crear la cuenta,
+   la plantilla y poner las variables de entorno.
 2. **Valoraciones y denuncias.** El nivel veterano ya las cuenta, pero todavía
    no hay forma de emitirlas.
 3. **Pagos.** Cobrar el reparto y liquidarlo con quien organiza.

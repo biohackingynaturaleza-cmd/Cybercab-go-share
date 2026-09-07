@@ -2,11 +2,16 @@ package api_test
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -621,5 +626,197 @@ func TestUnTipoDeComprobacionDesconocidoSeRechaza(t *testing.T) {
 		map[string]string{"kind": "huella_dactilar"}, nil)
 	if code != http.StatusUnprocessableEntity {
 		t.Fatalf("código = %d, esperaba 422", code)
+	}
+}
+
+// --- Avisos del proveedor de identidad ---
+
+// entornoPersona monta el servidor con el proveedor real conectado contra un
+// Persona simulado.
+func entornoPersona(t *testing.T, secreto string) (*entorno, *trust.Persona) {
+	t.Helper()
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "generate-one-time-link") {
+			_, _ = w.Write([]byte(`{"meta":{"one-time-link":"https://x.withpersona.com/verify?i=1"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"id":"inq_test","attributes":{"status":"created"}}}`))
+	}))
+	t.Cleanup(fake.Close)
+
+	persona, err := trust.NewPersona(trust.PersonaConfig{
+		APIKey: "k", WebhookSecret: secreto, BaseURL: fake.URL,
+		Plantillas: map[trust.CheckKind]string{
+			trust.CheckGovernmentID: "itmpl_doc_y_cara",
+			trust.CheckSelfie:       "itmpl_doc_y_cara",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewPersona: %v", err)
+	}
+
+	secretoJWT, _ := auth.GenerateSecret()
+	tokens, _ := auth.NewTokenIssuer(secretoJWT, time.Hour)
+	svc := service.New(store.NewMemory(), service.Config{Tokens: tokens, Identidad: persona})
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := httptest.NewServer(api.NewServer(svc, tokens, log, api.WithPersona(persona)))
+	t.Cleanup(srv.Close)
+	return &entorno{Server: srv}, persona
+}
+
+func firmaPersona(cuerpo []byte, cuando time.Time, secreto string) string {
+	marca := strconv.FormatInt(cuando.Unix(), 10)
+	mac := hmac.New(sha256.New, []byte(secreto))
+	mac.Write([]byte(marca + "."))
+	mac.Write(cuerpo)
+	return "t=" + marca + ",v1=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+func enviarAviso(t *testing.T, e *entorno, cuerpo []byte, firma string) int {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodPost, e.URL+"/api/v1/webhooks/identidad", bytes.NewReader(cuerpo))
+	req.Header.Set("Content-Type", "application/json")
+	if firma != "" {
+		req.Header.Set("Persona-Signature", firma)
+	}
+	resp, err := e.Client().Do(req)
+	if err != nil {
+		t.Fatalf("petición: %v", err)
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode
+}
+
+func TestUnAvisoSinFirmaNoVerificaANadie(t *testing.T) {
+	// La única barrera de esta ruta es la firma: es pública porque la llama el
+	// proveedor, no un usuario con sesión.
+	const secreto = "whsec_prueba_123456"
+	e, _ := entornoPersona(t, secreto)
+	ana := registrarSinVerificar(t, e, "Ana", "ana@example.com")
+
+	var abierta struct {
+		Verificacion struct {
+			ProviderRef string `json:"provider_ref"`
+		} `json:"verificacion"`
+	}
+	if code := do(t, e, http.MethodPost, "/api/v1/me/verificaciones", ana.Token,
+		map[string]string{"kind": "government_id"}, &abierta); code != http.StatusCreated {
+		t.Fatalf("abrir verificación: código = %d", code)
+	}
+
+	aviso := []byte(`{"data":{"attributes":{"name":"inquiry.approved","payload":{"data":{
+		"id":"` + abierta.Verificacion.ProviderRef + `",
+		"attributes":{"status":"approved"},
+		"relationships":{"inquiry-template":{"data":{"id":"itmpl_doc_y_cara"}}}}}}}}`)
+
+	casos := map[string]string{
+		"sin firma":                "",
+		"firma inventada":          "t=1,v1=aabbcc",
+		"firmado con otro secreto": firmaPersona(aviso, time.Now(), "secreto-del-atacante"),
+	}
+	for nombre, firma := range casos {
+		if code := enviarAviso(t, e, aviso, firma); code != http.StatusUnauthorized {
+			t.Errorf("%s: código = %d, esperaba 401", nombre, code)
+		}
+	}
+
+	// Y nadie ha quedado verificado por el camino.
+	var perfil map[string]any
+	do(t, e, http.MethodGet, "/api/v1/users/"+ana.User.ID+"/confianza", "", nil, &perfil)
+	if perfil["nivel"] != "nuevo" {
+		t.Fatalf("nivel = %v: un aviso sin firma no puede acreditar a nadie", perfil["nivel"])
+	}
+}
+
+func TestUnAvisoFirmadoAcreditaDocumentoYCaraALaVez(t *testing.T) {
+	const secreto = "whsec_prueba_123456"
+	e, _ := entornoPersona(t, secreto)
+	ana := registrarSinVerificar(t, e, "Ana", "ana@example.com")
+
+	// Se abren las dos comprobaciones; una sola plantilla las resuelve.
+	var doc struct {
+		Verificacion struct {
+			ProviderRef string `json:"provider_ref"`
+		} `json:"verificacion"`
+	}
+	do(t, e, http.MethodPost, "/api/v1/me/verificaciones", ana.Token,
+		map[string]string{"kind": "government_id"}, &doc)
+	do(t, e, http.MethodPost, "/api/v1/me/verificaciones", ana.Token,
+		map[string]string{"kind": "selfie_liveness"}, nil)
+
+	aviso := []byte(`{"data":{"attributes":{"name":"inquiry.approved","payload":{"data":{
+		"id":"` + doc.Verificacion.ProviderRef + `",
+		"attributes":{"status":"approved","reference-id":"` + ana.User.ID + `"},
+		"relationships":{"inquiry-template":{"data":{"id":"itmpl_doc_y_cara"}}}}}}}}`)
+
+	if code := enviarAviso(t, e, aviso, firmaPersona(aviso, time.Now(), secreto)); code != http.StatusOK {
+		t.Fatalf("código = %d, esperaba 200", code)
+	}
+
+	var mias map[string]any
+	do(t, e, http.MethodGet, "/api/v1/me/verificaciones", ana.Token, nil, &mias)
+	verificadas := 0
+	for _, v := range mias["verificaciones"].([]any) {
+		if v.(map[string]any)["status"] == "verified" {
+			verificadas++
+		}
+	}
+	if verificadas != 2 {
+		t.Fatalf("verificadas = %d, esperaba que un trámite acreditara documento y cara", verificadas)
+	}
+}
+
+func TestUnAvisoDeAlgoDesconocidoNoEsUnError(t *testing.T) {
+	// Devolver error haría que el proveedor lo reintentara para siempre.
+	const secreto = "whsec_prueba_123456"
+	e, _ := entornoPersona(t, secreto)
+
+	aviso := []byte(`{"data":{"attributes":{"name":"inquiry.approved","payload":{"data":{
+		"id":"inq_que_no_conocemos","attributes":{"status":"approved"}}}}}}`)
+
+	if code := enviarAviso(t, e, aviso, firmaPersona(aviso, time.Now(), secreto)); code != http.StatusOK {
+		t.Fatalf("código = %d, esperaba 200 para que no se reintente eternamente", code)
+	}
+}
+
+func TestUnRechazoNoSePisaConUnAvisoPosterior(t *testing.T) {
+	const secreto = "whsec_prueba_123456"
+	e, _ := entornoPersona(t, secreto)
+	ana := registrarSinVerificar(t, e, "Ana", "ana@example.com")
+
+	var doc struct {
+		Verificacion struct {
+			ProviderRef string `json:"provider_ref"`
+		} `json:"verificacion"`
+	}
+	do(t, e, http.MethodPost, "/api/v1/me/verificaciones", ana.Token,
+		map[string]string{"kind": "government_id"}, &doc)
+	ref := doc.Verificacion.ProviderRef
+
+	construir := func(estado string) []byte {
+		return []byte(`{"data":{"attributes":{"name":"inquiry.` + estado + `","payload":{"data":{
+			"id":"` + ref + `","attributes":{"status":"` + estado + `"},
+			"relationships":{"inquiry-template":{"data":{"id":"itmpl_doc_y_cara"}}}}}}}}`)
+	}
+
+	rechazo := construir("declined")
+	enviarAviso(t, e, rechazo, firmaPersona(rechazo, time.Now(), secreto))
+
+	// Reenviar un "aprobado" después no puede convertir el no en un sí.
+	aprobado := construir("approved")
+	enviarAviso(t, e, aprobado, firmaPersona(aprobado, time.Now(), secreto))
+
+	var perfil map[string]any
+	do(t, e, http.MethodGet, "/api/v1/users/"+ana.User.ID+"/confianza", "", nil, &perfil)
+	if perfil["nivel"] != "nuevo" {
+		t.Fatalf("nivel = %v: un rechazo resuelto no se puede reabrir", perfil["nivel"])
+	}
+}
+
+func TestSinProveedorRealElWebhookNoExiste(t *testing.T) {
+	e := newTestServer(t) // modo manual
+	if code := enviarAviso(t, e, []byte(`{}`), "t=1,v1=aa"); code != http.StatusNotFound {
+		t.Fatalf("código = %d, esperaba 404", code)
 	}
 }
