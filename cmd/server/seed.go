@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"time"
 
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
@@ -15,19 +16,23 @@ var (
 	ausAirport     = domain.Place{Name: "Austin-Bergstrom Intl (AUS)", Point: geo.Point{Lat: 30.1975, Lng: -97.6664}}
 )
 
+// demoPassword es la contraseña de las cuentas de ejemplo. Solo se usa con
+// SEED_DEMO=1, que nunca debe activarse en producción.
+const demoPassword = "cybercab-demo-2026"
+
 // seedDemo carga un par de usuarios y un trayecto de ejemplo para poder probar
 // la API nada más arrancar.
-func seedDemo(svc *service.Service) error {
-	host, err := svc.CreateUser("Ana", "ana@example.com")
+func seedDemo(ctx context.Context, svc *service.Service) error {
+	host, err := svc.Register("Ana", "ana@example.com", demoPassword)
 	if err != nil {
 		return err
 	}
-	if _, err := svc.CreateUser("Bruno", "bruno@example.com"); err != nil {
+	if _, err := svc.Register("Bruno", "bruno@example.com", demoPassword); err != nil {
 		return err
 	}
 
-	_, err = svc.CreateTrip(service.NewTripInput{
-		HostID:        host.ID,
+	_, err = svc.CreateTrip(ctx, service.NewTripInput{
+		HostID:        host.User.ID,
 		Origin:        downtownAustin,
 		Destination:   ausAirport,
 		Waypoints:     []geo.Point{riverside.Point},

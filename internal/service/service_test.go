@@ -1,10 +1,12 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
 
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/auth"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/geo"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/matching"
@@ -24,19 +26,39 @@ type fixture struct {
 	trip  *domain.Trip
 }
 
+const testPassword = "contraseña-de-prueba"
+
+// newTestService construye un servicio listo para pruebas: emisor de tokens
+// propio y rutas en línea recta, sin depender de la red.
+func newTestService(t *testing.T) *Service {
+	t.Helper()
+	secret, err := auth.GenerateSecret()
+	if err != nil {
+		t.Fatalf("GenerateSecret: %v", err)
+	}
+	tokens, err := auth.NewTokenIssuer(secret, time.Hour)
+	if err != nil {
+		t.Fatalf("NewTokenIssuer: %v", err)
+	}
+	return New(store.NewMemory(), Config{Tokens: tokens})
+}
+
 func newFixture(t *testing.T, vehicle domain.VehicleType) fixture {
 	t.Helper()
-	svc := New(store.NewMemory(), Config{})
+	svc := newTestService(t)
 
-	host, err := svc.CreateUser("Ana", "ana@example.com")
+	hostSess, err := svc.Register("Ana", "ana@example.com", testPassword)
 	if err != nil {
-		t.Fatalf("CreateUser(host): %v", err)
+		t.Fatalf("Register(host): %v", err)
 	}
-	rider, err := svc.CreateUser("Bruno", "bruno@example.com")
+	host := hostSess.User
+	riderSess, err := svc.Register("Bruno", "bruno@example.com", testPassword)
 	if err != nil {
-		t.Fatalf("CreateUser(rider): %v", err)
+		t.Fatalf("Register(rider): %v", err)
 	}
-	trip, err := svc.CreateTrip(NewTripInput{
+	rider := riderSess.User
+
+	trip, err := svc.CreateTrip(context.Background(), NewTripInput{
 		HostID:        host.ID,
 		Origin:        downtown,
 		Destination:   airport,
@@ -60,7 +82,7 @@ func TestCreateTripCybercabOfreceUnaSolaPlaza(t *testing.T) {
 
 func TestCreateTripRechazaMasPlazasQueElAforo(t *testing.T) {
 	f := newFixture(t, domain.VehicleCybercab)
-	_, err := f.svc.CreateTrip(NewTripInput{
+	_, err := f.svc.CreateTrip(context.Background(), NewTripInput{
 		HostID:        f.host.ID,
 		Origin:        downtown,
 		Destination:   airport,
@@ -75,7 +97,7 @@ func TestCreateTripRechazaMasPlazasQueElAforo(t *testing.T) {
 
 func TestCreateTripRechazaSalidasPasadas(t *testing.T) {
 	f := newFixture(t, domain.VehicleModelY)
-	_, err := f.svc.CreateTrip(NewTripInput{
+	_, err := f.svc.CreateTrip(context.Background(), NewTripInput{
 		HostID:        f.host.ID,
 		Origin:        downtown,
 		Destination:   airport,
@@ -162,7 +184,8 @@ func TestCancelarUnaReservaLiberaLaPlaza(t *testing.T) {
 
 func TestNoSePuedeReservarSinPlazas(t *testing.T) {
 	f := newFixture(t, domain.VehicleCybercab)
-	tercero, _ := f.svc.CreateUser("Clara", "clara@example.com")
+	terceroSess, _ := f.svc.Register("Clara", "clara@example.com", testPassword)
+	tercero := terceroSess.User
 
 	if _, err := f.svc.RequestBooking(BookInput{
 		TripID: f.trip.ID, PassengerID: f.rider.ID,
@@ -198,8 +221,8 @@ func TestSoloQuienOrganizaDecideSobreLaReserva(t *testing.T) {
 		Pickup: riverside, Dropoff: airport,
 	})
 
-	if _, err := f.svc.DecideBooking(b.ID, f.rider.ID, true); !errors.Is(err, domain.ErrValidation) {
-		t.Fatalf("error = %v, esperaba un error de validación", err)
+	if _, err := f.svc.DecideBooking(b.ID, f.rider.ID, true); !errors.Is(err, ErrNoAutorizado) {
+		t.Fatalf("error = %v, esperaba ErrNoAutorizado", err)
 	}
 }
 
@@ -275,7 +298,7 @@ func TestElRepartoAhorraDineroAQuienOrganiza(t *testing.T) {
 func TestSearchEncuentraElTrayectoPublicado(t *testing.T) {
 	f := newFixture(t, domain.VehicleModelY)
 
-	matches, err := f.svc.Search(matching.Query{
+	matches, err := f.svc.Search(context.Background(), matching.Query{
 		Pickup:  riverside.Point,
 		Dropoff: airport.Point,
 	})
@@ -293,7 +316,7 @@ func TestSearchNoDevuelveTrayectosAnulados(t *testing.T) {
 		t.Fatalf("CancelTrip: %v", err)
 	}
 
-	matches, _ := f.svc.Search(matching.Query{Pickup: riverside.Point, Dropoff: airport.Point})
+	matches, _ := f.svc.Search(context.Background(), matching.Query{Pickup: riverside.Point, Dropoff: airport.Point})
 	if len(matches) != 0 {
 		t.Fatalf("resultados = %d, esperaba 0", len(matches))
 	}

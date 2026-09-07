@@ -46,12 +46,15 @@ type Place struct {
 
 // User es una persona registrada en la app.
 type User struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Email     string    `json:"email"`
-	Rating    float64   `json:"rating"`
-	RideCount int       `json:"ride_count"`
-	CreatedAt time.Time `json:"created_at"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	// PasswordHash nunca sale de la API: el tag `json:"-"` evita que se filtre
+	// aunque alguien serialice el usuario entero por descuido.
+	PasswordHash string    `json:"-"`
+	Rating       float64   `json:"rating"`
+	RideCount    int       `json:"ride_count"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // TripStatus es el ciclo de vida de un trayecto compartido.
@@ -72,7 +75,13 @@ type Trip struct {
 	Origin      Place  `json:"origin"`
 	Destination Place  `json:"destination"`
 	// Route es la polilínea completa: origen, waypoints y destino.
-	Route         geo.Route   `json:"route"`
+	Route geo.Route `json:"route"`
+	// DurationMin es el tiempo estimado del trayecto. Con rutas reales lo da
+	// el motor de rutas; si no, se estima con una velocidad media.
+	DurationMin float64 `json:"duration_min"`
+	// RouteSource dice de dónde salió la ruta ("osrm", "straight_line"), para
+	// no confundir una estimación con una ruta de calle real.
+	RouteSource   string      `json:"route_source"`
 	DepartureTime time.Time   `json:"departure_time"`
 	Vehicle       VehicleType `json:"vehicle"`
 	SeatsTotal    int         `json:"seats_total"`

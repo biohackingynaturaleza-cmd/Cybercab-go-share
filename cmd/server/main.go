@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/api"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/auth"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/pricing"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/routing"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/service"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/store"
 )
@@ -27,14 +29,24 @@ func main() {
 	tariff.PerMinuteCents = envInt64("FARE_PER_MINUTE_CENTS", tariff.PerMinuteCents)
 	tariff.MinimumCents = envInt64("FARE_MINIMUM_CENTS", tariff.MinimumCents)
 
+	speed := float64(envInt64("AVG_SPEED_KMH", service.DefaultSpeedKmh))
+
+	tokens, err := buildTokenIssuer(log)
+	if err != nil {
+		log.Error("no se pudo preparar la autenticación", "err", err)
+		os.Exit(1)
+	}
+
 	db := store.NewMemory()
 	svc := service.New(db, service.Config{
 		Tariff:   tariff,
-		SpeedKmh: float64(envInt64("AVG_SPEED_KMH", service.DefaultSpeedKmh)),
+		SpeedKmh: speed,
+		Tokens:   tokens,
+		Router:   buildRouter(log, speed),
 	})
 
 	if os.Getenv("SEED_DEMO") == "1" {
-		if err := seedDemo(svc); err != nil {
+		if err := seedDemo(context.Background(), svc); err != nil {
 			log.Error("no se pudo cargar la demo", "err", err)
 		} else {
 			log.Info("datos de demostración cargados (Austin)")
@@ -44,7 +56,7 @@ func main() {
 	addr := ":" + envString("PORT", "8080")
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           api.NewServer(svc, log),
+		Handler:           api.NewServer(svc, tokens, log),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -70,6 +82,41 @@ func main() {
 		log.Error("apagado forzado", "err", err)
 	}
 	log.Info("servidor detenido")
+}
+
+// buildTokenIssuer prepara la firma de sesiones. En producción el secreto es
+// obligatorio: si se generase uno nuevo en cada arranque, todas las sesiones
+// caducarían en cada despliegue y no habría forma de escalar a varias réplicas.
+func buildTokenIssuer(log *slog.Logger) (*auth.TokenIssuer, error) {
+	secret := []byte(os.Getenv("AUTH_SECRET"))
+	if len(secret) == 0 {
+		if os.Getenv("ENV") == "production" {
+			return nil, errors.New("AUTH_SECRET es obligatorio en producción")
+		}
+		generated, err := auth.GenerateSecret()
+		if err != nil {
+			return nil, err
+		}
+		secret = generated
+		log.Warn("AUTH_SECRET sin definir: se ha generado uno temporal. " +
+			"Las sesiones se invalidarán al reiniciar")
+	}
+	ttl := time.Duration(envInt64("AUTH_TOKEN_TTL_HOURS", 24)) * time.Hour
+	return auth.NewTokenIssuer(secret, ttl)
+}
+
+// buildRouter elige el motor de rutas: OSRM si hay servidor configurado, con
+// respaldo en línea recta para que un fallo del proveedor no tumbe la app.
+func buildRouter(log *slog.Logger, speedKmh float64) routing.Router {
+	backup := routing.NewStraightLine(speedKmh)
+
+	url := os.Getenv("OSRM_URL")
+	if url == "" {
+		log.Info("OSRM_URL sin definir: las rutas serán aproximaciones en línea recta")
+		return backup
+	}
+	log.Info("motor de rutas activo", "url", url)
+	return routing.WithFallback(routing.NewOSRM(url), backup, log)
 }
 
 func envString(key, fallback string) string {

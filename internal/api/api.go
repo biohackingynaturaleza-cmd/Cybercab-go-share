@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/auth"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/geo"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/matching"
@@ -23,26 +24,40 @@ type Server struct {
 }
 
 // NewServer construye el manejador HTTP con todas las rutas registradas.
-func NewServer(svc *service.Service, log *slog.Logger) http.Handler {
+//
+// Las rutas que actúan en nombre de alguien exigen un token: la identidad sale
+// siempre del token verificado, nunca del cuerpo de la petición.
+func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger) http.Handler {
 	s := &Server{svc: svc, log: log}
+	requireAuth := auth.Require(verifier, unauthorized)
+
+	// protegida envuelve un manejador para que solo lo alcance quien va identificado.
+	protegida := func(h http.HandlerFunc) http.Handler { return requireAuth(h) }
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 
-	mux.HandleFunc("POST /api/v1/users", s.createUser)
-	mux.HandleFunc("GET /api/v1/users/{id}", s.getUser)
-	mux.HandleFunc("GET /api/v1/users/{id}/bookings", s.listUserBookings)
+	// Acceso
+	mux.HandleFunc("POST /api/v1/auth/register", s.register)
+	mux.HandleFunc("POST /api/v1/auth/login", s.login)
+	mux.Handle("GET /api/v1/me", protegida(s.me))
+	mux.Handle("GET /api/v1/me/bookings", protegida(s.myBookings))
 
-	mux.HandleFunc("POST /api/v1/trips", s.createTrip)
+	// Perfiles públicos: se ve con quién vas a compartir coche.
+	mux.HandleFunc("GET /api/v1/users/{id}", s.getUser)
+
+	// Trayectos
 	mux.HandleFunc("GET /api/v1/trips", s.listTrips)
 	mux.HandleFunc("GET /api/v1/trips/{id}", s.getTrip)
-	mux.HandleFunc("POST /api/v1/trips/{id}/cancel", s.cancelTrip)
 	mux.HandleFunc("GET /api/v1/trips/{id}/fare", s.tripFare)
-	mux.HandleFunc("GET /api/v1/trips/{id}/bookings", s.listTripBookings)
-	mux.HandleFunc("POST /api/v1/trips/{id}/bookings", s.createBooking)
+	mux.Handle("POST /api/v1/trips", protegida(s.createTrip))
+	mux.Handle("POST /api/v1/trips/{id}/cancel", protegida(s.cancelTrip))
+	mux.Handle("GET /api/v1/trips/{id}/bookings", protegida(s.listTripBookings))
+	mux.Handle("POST /api/v1/trips/{id}/bookings", protegida(s.createBooking))
 
-	mux.HandleFunc("POST /api/v1/bookings/{id}/decision", s.decideBooking)
-	mux.HandleFunc("POST /api/v1/bookings/{id}/cancel", s.cancelBooking)
+	// Reservas
+	mux.Handle("POST /api/v1/bookings/{id}/decision", protegida(s.decideBooking))
+	mux.Handle("POST /api/v1/bookings/{id}/cancel", protegida(s.cancelBooking))
 
 	mux.HandleFunc("POST /api/v1/search", s.search)
 
@@ -55,24 +70,61 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// --- Usuarios ---
+// --- Acceso ---
 
-type createUserRequest struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
+type registerRequest struct {
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
-func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
-	var req createUserRequest
+func (s *Server) register(w http.ResponseWriter, r *http.Request) {
+	var req registerRequest
 	if !decode(w, r, &req) {
 		return
 	}
-	u, err := s.svc.CreateUser(req.Name, req.Email)
+	sess, err := s.svc.Register(req.Name, req.Email, req.Password)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, u)
+	writeJSON(w, http.StatusCreated, sess)
+}
+
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	var req loginRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	sess, err := s.svc.Login(req.Email, req.Password)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, sess)
+}
+
+func (s *Server) me(w http.ResponseWriter, r *http.Request) {
+	u, err := s.svc.GetUser(actor(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, u)
+}
+
+func (s *Server) myBookings(w http.ResponseWriter, r *http.Request) {
+	bs, err := s.svc.BookingsByPassenger(actor(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"bookings": nonNil(bs)})
 }
 
 func (s *Server) getUser(w http.ResponseWriter, r *http.Request) {
@@ -84,19 +136,9 @@ func (s *Server) getUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, u)
 }
 
-func (s *Server) listUserBookings(w http.ResponseWriter, r *http.Request) {
-	bs, err := s.svc.BookingsByPassenger(r.PathValue("id"))
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"bookings": nonNil(bs)})
-}
-
 // --- Trayectos ---
 
 type createTripRequest struct {
-	HostID        string             `json:"host_id"`
 	Origin        domain.Place       `json:"origin"`
 	Destination   domain.Place       `json:"destination"`
 	Waypoints     []geo.Point        `json:"waypoints"`
@@ -112,8 +154,8 @@ func (s *Server) createTrip(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	t, err := s.svc.CreateTrip(service.NewTripInput{
-		HostID:        req.HostID,
+	t, err := s.svc.CreateTrip(r.Context(), service.NewTripInput{
+		HostID:        actor(r),
 		Origin:        req.Origin,
 		Destination:   req.Destination,
 		Waypoints:     req.Waypoints,
@@ -152,16 +194,8 @@ func (s *Server) getTrip(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tripView(t))
 }
 
-type actorRequest struct {
-	ActorID string `json:"actor_id"`
-}
-
 func (s *Server) cancelTrip(w http.ResponseWriter, r *http.Request) {
-	var req actorRequest
-	if !decode(w, r, &req) {
-		return
-	}
-	t, err := s.svc.CancelTrip(r.PathValue("id"), req.ActorID)
+	t, err := s.svc.CancelTrip(r.PathValue("id"), actor(r))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -179,7 +213,7 @@ func (s *Server) tripFare(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listTripBookings(w http.ResponseWriter, r *http.Request) {
-	bs, err := s.svc.BookingsByTrip(r.PathValue("id"))
+	bs, err := s.svc.BookingsByTripFor(r.PathValue("id"), actor(r))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -190,10 +224,9 @@ func (s *Server) listTripBookings(w http.ResponseWriter, r *http.Request) {
 // --- Reservas ---
 
 type createBookingRequest struct {
-	PassengerID string       `json:"passenger_id"`
-	Pickup      domain.Place `json:"pickup"`
-	Dropoff     domain.Place `json:"dropoff"`
-	Seats       int          `json:"seats"`
+	Pickup  domain.Place `json:"pickup"`
+	Dropoff domain.Place `json:"dropoff"`
+	Seats   int          `json:"seats"`
 }
 
 func (s *Server) createBooking(w http.ResponseWriter, r *http.Request) {
@@ -203,7 +236,7 @@ func (s *Server) createBooking(w http.ResponseWriter, r *http.Request) {
 	}
 	b, err := s.svc.RequestBooking(service.BookInput{
 		TripID:      r.PathValue("id"),
-		PassengerID: req.PassengerID,
+		PassengerID: actor(r),
 		Pickup:      req.Pickup,
 		Dropoff:     req.Dropoff,
 		Seats:       req.Seats,
@@ -216,8 +249,7 @@ func (s *Server) createBooking(w http.ResponseWriter, r *http.Request) {
 }
 
 type decisionRequest struct {
-	ActorID string `json:"actor_id"`
-	Accept  bool   `json:"accept"`
+	Accept bool `json:"accept"`
 }
 
 func (s *Server) decideBooking(w http.ResponseWriter, r *http.Request) {
@@ -225,7 +257,7 @@ func (s *Server) decideBooking(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	b, err := s.svc.DecideBooking(r.PathValue("id"), req.ActorID, req.Accept)
+	b, err := s.svc.DecideBooking(r.PathValue("id"), actor(r), req.Accept)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -234,11 +266,7 @@ func (s *Server) decideBooking(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) cancelBooking(w http.ResponseWriter, r *http.Request) {
-	var req actorRequest
-	if !decode(w, r, &req) {
-		return
-	}
-	b, err := s.svc.CancelBooking(r.PathValue("id"), req.ActorID)
+	b, err := s.svc.CancelBooking(r.PathValue("id"), actor(r))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -266,7 +294,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadRequest, "coordenadas de recogida o destino no válidas")
 		return
 	}
-	matches, err := s.svc.Search(matching.Query{
+	matches, err := s.svc.Search(r.Context(), matching.Query{
 		Pickup:            req.Pickup,
 		Dropoff:           req.Dropoff,
 		EarliestDeparture: req.EarliestDeparture,
@@ -284,7 +312,14 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"matches": matches, "count": len(matches)})
 }
 
-// --- Serialización ---
+// --- Auxiliares ---
+
+// actor es el usuario autenticado de la petición. Solo se invoca desde rutas
+// protegidas, donde el middleware garantiza que existe.
+func actor(r *http.Request) string {
+	id, _ := auth.UserFrom(r.Context())
+	return id
+}
 
 // tripView añade al trayecto los campos calculados que la interfaz necesita.
 func tripView(t *domain.Trip) map[string]any {
@@ -300,6 +335,8 @@ func tripView(t *domain.Trip) map[string]any {
 		"seats_taken":     t.SeatsTaken,
 		"seats_available": t.SeatsAvailable(),
 		"distance_km":     round2(t.DistanceKm()),
+		"duration_min":    round2(t.DurationMin),
+		"route_source":    t.RouteSource,
 		"max_detour_km":   t.MaxDetourKm,
 		"notes":           t.Notes,
 		"status":          t.Status,
@@ -339,15 +376,26 @@ func writeProblem(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+func unauthorized(w http.ResponseWriter, _ *http.Request, err error) {
+	w.Header().Set("WWW-Authenticate", `Bearer realm="cybercab-go-share"`)
+	writeProblem(w, http.StatusUnauthorized, err.Error())
+}
+
 // writeError traduce los errores del dominio al código HTTP que les toca.
 func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeProblem(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, domain.ErrValidation):
-		writeProblem(w, http.StatusUnprocessableEntity, err.Error())
+	case errors.Is(err, auth.ErrCredencialesInvalidas), errors.Is(err, auth.ErrTokenInvalido):
+		unauthorized(w, nil, err)
+	case errors.Is(err, service.ErrNoAutorizado):
+		writeProblem(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, store.ErrEmailEnUso):
+		writeProblem(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrNoSeats):
 		writeProblem(w, http.StatusConflict, err.Error())
+	case errors.Is(err, domain.ErrValidation):
+		writeProblem(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeProblem(w, http.StatusInternalServerError, err.Error())
 	}

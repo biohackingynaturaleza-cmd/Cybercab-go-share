@@ -3,14 +3,18 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/auth"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/geo"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/matching"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/pricing"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/routing"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/store"
 )
 
@@ -22,9 +26,18 @@ const DefaultSpeedKmh = 45
 type Config struct {
 	Tariff   pricing.Tariff
 	SpeedKmh float64
+	// Tokens emite las sesiones. Sin él, Register y Login no están disponibles.
+	Tokens *auth.TokenIssuer
+	// Router calcula las rutas de los trayectos. Por defecto, línea recta.
+	Router routing.Router
 	// Now permite fijar el reloj en las pruebas.
 	Now func() time.Time
 }
+
+// ErrNoAutorizado se devuelve cuando quien pide la acción no tiene permiso
+// sobre ese recurso. Se distingue de la validación porque merece un 403, no un
+// 422: la petición es correcta, quien la hace no.
+var ErrNoAutorizado = errors.New("no tienes permiso sobre este recurso")
 
 // Service es el punto de entrada a la lógica de negocio.
 type Service struct {
@@ -43,6 +56,9 @@ func New(s store.Store, cfg Config) *Service {
 	if cfg.Now == nil {
 		cfg.Now = func() time.Time { return time.Now().UTC() }
 	}
+	if cfg.Router == nil {
+		cfg.Router = routing.NewStraightLine(cfg.SpeedKmh)
+	}
 	return &Service{store: s, cfg: cfg}
 }
 
@@ -51,22 +67,69 @@ func (s *Service) Tariff() pricing.Tariff { return s.cfg.Tariff }
 
 // --- Usuarios ---
 
-// CreateUser da de alta a una persona.
-func (s *Service) CreateUser(name, email string) (*domain.User, error) {
+// Session es lo que recibe quien se registra o entra: quién es y su token.
+type Session struct {
+	User      *domain.User `json:"user"`
+	Token     string       `json:"token"`
+	ExpiresAt time.Time    `json:"expires_at"`
+}
+
+// Register da de alta a una persona y le abre sesión.
+func (s *Service) Register(name, email, password string) (*Session, error) {
 	if name == "" || email == "" {
 		return nil, fmt.Errorf("%w: nombre y email son obligatorios", domain.ErrValidation)
 	}
+	if !strings.Contains(email, "@") {
+		return nil, fmt.Errorf("%w: el email no parece válido", domain.ErrValidation)
+	}
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", domain.ErrValidation, err)
+	}
+
 	u := &domain.User{
-		ID:        newID("usr"),
-		Name:      name,
-		Email:     email,
-		Rating:    5,
-		CreatedAt: s.cfg.Now(),
+		ID:           newID("usr"),
+		Name:         name,
+		Email:        strings.TrimSpace(email),
+		PasswordHash: hash,
+		Rating:       5,
+		CreatedAt:    s.cfg.Now(),
 	}
 	if err := s.store.CreateUser(u); err != nil {
 		return nil, err
 	}
-	return u, nil
+	return s.openSession(u)
+}
+
+// Login comprueba las credenciales y abre sesión.
+func (s *Service) Login(email, password string) (*Session, error) {
+	u, err := s.store.GetUserByEmail(email)
+	if err != nil {
+		// Gastamos el mismo tiempo que en un acierto: si respondiéramos antes
+		// cuando el email no existe, el propio retardo revelaría quién está
+		// registrado.
+		auth.CheckPassword(dummyHash, password) //nolint:errcheck // solo iguala el tiempo
+		return nil, auth.ErrCredencialesInvalidas
+	}
+	if err := auth.CheckPassword(u.PasswordHash, password); err != nil {
+		return nil, err
+	}
+	return s.openSession(u)
+}
+
+// dummyHash es un bcrypt válido de una contraseña que nadie usa. Solo sirve
+// para que Login tarde lo mismo exista o no el usuario.
+const dummyHash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
+
+func (s *Service) openSession(u *domain.User) (*Session, error) {
+	if s.cfg.Tokens == nil {
+		return nil, errors.New("el servicio no tiene configurado el emisor de tokens")
+	}
+	token, expires, err := s.cfg.Tokens.Issue(u.ID, s.cfg.Now())
+	if err != nil {
+		return nil, err
+	}
+	return &Session{User: u, Token: token, ExpiresAt: expires}, nil
 }
 
 // GetUser recupera un usuario por identificador.
@@ -88,7 +151,11 @@ type NewTripInput struct {
 }
 
 // CreateTrip publica un trayecto que otros podrán compartir.
-func (s *Service) CreateTrip(in NewTripInput) (*domain.Trip, error) {
+//
+// La ruta la traza el motor de rutas: la polilínea que se guarda es la que el
+// coche va a seguir de verdad, no la línea recta entre origen y destino. De ahí
+// depende que el emparejamiento y el reparto del coste sean fieles.
+func (s *Service) CreateTrip(ctx context.Context, in NewTripInput) (*domain.Trip, error) {
 	if _, err := s.store.GetUser(in.HostID); err != nil {
 		return nil, fmt.Errorf("%w: el usuario que organiza no existe", domain.ErrValidation)
 	}
@@ -103,17 +170,27 @@ func (s *Service) CreateTrip(in NewTripInput) (*domain.Trip, error) {
 		in.MaxDetourKm = matching.DefaultMaxWalkKm
 	}
 
-	route := make(geo.Route, 0, len(in.Waypoints)+2)
-	route = append(route, in.Origin.Point)
-	route = append(route, in.Waypoints...)
-	route = append(route, in.Destination.Point)
+	waypoints := make([]geo.Point, 0, len(in.Waypoints)+2)
+	waypoints = append(waypoints, in.Origin.Point)
+	waypoints = append(waypoints, in.Waypoints...)
+	waypoints = append(waypoints, in.Destination.Point)
+
+	computed, err := s.cfg.Router.Route(ctx, waypoints)
+	if err != nil {
+		if errors.Is(err, routing.ErrSinRuta) {
+			return nil, fmt.Errorf("%w: no hay ruta por carretera entre esos puntos", domain.ErrValidation)
+		}
+		return nil, fmt.Errorf("calculando la ruta: %w", err)
+	}
 
 	t := &domain.Trip{
 		ID:            newID("trip"),
 		HostID:        in.HostID,
 		Origin:        in.Origin,
 		Destination:   in.Destination,
-		Route:         route,
+		Route:         computed.Geometry,
+		DurationMin:   computed.DurationMin,
+		RouteSource:   computed.Source,
 		DepartureTime: in.DepartureTime.UTC(),
 		Vehicle:       in.Vehicle,
 		SeatsTotal:    in.SeatsOffered,
@@ -147,7 +224,7 @@ func (s *Service) CancelTrip(tripID, hostID string) (*domain.Trip, error) {
 		return nil, err
 	}
 	if t.HostID != hostID {
-		return nil, fmt.Errorf("%w: solo quien organiza puede anular el trayecto", domain.ErrValidation)
+		return nil, fmt.Errorf("%w: solo quien organiza puede anular el trayecto", ErrNoAutorizado)
 	}
 	bookings, err := s.store.BookingsByTrip(tripID)
 	if err != nil {
@@ -170,7 +247,7 @@ func (s *Service) CancelTrip(tripID, hostID string) (*domain.Trip, error) {
 }
 
 // Search busca trayectos compatibles con lo que pide un pasajero.
-func (s *Service) Search(q matching.Query) ([]matching.Match, error) {
+func (s *Service) Search(_ context.Context, q matching.Query) ([]matching.Match, error) {
 	trips, err := s.store.ListOpenTrips()
 	if err != nil {
 		return nil, err
@@ -288,7 +365,7 @@ func (s *Service) DecideBooking(bookingID, hostID string, accept bool) (*domain.
 		return nil, err
 	}
 	if t.HostID != hostID {
-		return nil, fmt.Errorf("%w: solo quien organiza puede decidir sobre la reserva", domain.ErrValidation)
+		return nil, fmt.Errorf("%w: solo quien organiza puede decidir sobre la reserva", ErrNoAutorizado)
 	}
 	if b.Status != domain.BookingPending {
 		return nil, fmt.Errorf("%w: la reserva ya está en estado %q", domain.ErrValidation, b.Status)
@@ -320,7 +397,7 @@ func (s *Service) CancelBooking(bookingID, actorID string) (*domain.Booking, err
 		return nil, err
 	}
 	if actorID != b.PassengerID && actorID != t.HostID {
-		return nil, fmt.Errorf("%w: no puedes anular esta reserva", domain.ErrValidation)
+		return nil, fmt.Errorf("%w: no puedes anular esta reserva", ErrNoAutorizado)
 	}
 	if !b.Status.Active() {
 		return b, nil // anular dos veces no es un error
@@ -332,9 +409,37 @@ func (s *Service) CancelBooking(bookingID, actorID string) (*domain.Booking, err
 	return b, s.releaseSeats(t, b.Seats)
 }
 
-// BookingsByTrip lista las reservas de un trayecto.
+// BookingsByTrip lista las reservas de un trayecto, sin comprobar permisos.
+// Es de uso interno; la API entra por BookingsByTripFor.
 func (s *Service) BookingsByTrip(tripID string) ([]*domain.Booking, error) {
 	return s.store.BookingsByTrip(tripID)
+}
+
+// BookingsByTripFor lista las reservas que actorID tiene derecho a ver: quien
+// organiza las ve todas; un pasajero, solo la suya. Sin este filtro, cualquiera
+// podría leer con quién viaja el resto de la gente.
+func (s *Service) BookingsByTripFor(tripID, actorID string) ([]*domain.Booking, error) {
+	t, err := s.store.GetTrip(tripID)
+	if err != nil {
+		return nil, err
+	}
+	all, err := s.store.BookingsByTrip(tripID)
+	if err != nil {
+		return nil, err
+	}
+	if t.HostID == actorID {
+		return all, nil
+	}
+	mine := make([]*domain.Booking, 0, 1)
+	for _, b := range all {
+		if b.PassengerID == actorID {
+			mine = append(mine, b)
+		}
+	}
+	if len(mine) == 0 {
+		return nil, ErrNoAutorizado
+	}
+	return mine, nil
 }
 
 // BookingsByPassenger lista las reservas de un pasajero.

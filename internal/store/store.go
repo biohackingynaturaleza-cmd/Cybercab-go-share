@@ -7,6 +7,7 @@ package store
 
 import (
 	"errors"
+	"strings"
 	"sync"
 
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
@@ -15,10 +16,14 @@ import (
 // ErrNotFound se devuelve cuando el identificador no existe.
 var ErrNotFound = errors.New("no encontrado")
 
+// ErrEmailEnUso se devuelve al registrar un email ya dado de alta.
+var ErrEmailEnUso = errors.New("ese email ya está registrado")
+
 // Store es el contrato de persistencia de la aplicación.
 type Store interface {
 	CreateUser(u *domain.User) error
 	GetUser(id string) (*domain.User, error)
+	GetUserByEmail(email string) (*domain.User, error)
 
 	CreateTrip(t *domain.Trip) error
 	GetTrip(id string) (*domain.Trip, error)
@@ -34,8 +39,10 @@ type Store interface {
 
 // Memory es un Store en memoria, seguro para uso concurrente.
 type Memory struct {
-	mu       sync.RWMutex
-	users    map[string]*domain.User
+	mu    sync.RWMutex
+	users map[string]*domain.User
+	// byEmail indexa por email en minúsculas para garantizar la unicidad.
+	byEmail  map[string]string
 	trips    map[string]*domain.Trip
 	bookings map[string]*domain.Booking
 	// tripOrder preserva el orden de alta para que los listados sean estables.
@@ -46,6 +53,7 @@ type Memory struct {
 func NewMemory() *Memory {
 	return &Memory{
 		users:    map[string]*domain.User{},
+		byEmail:  map[string]string{},
 		trips:    map[string]*domain.Trip{},
 		bookings: map[string]*domain.Booking{},
 	}
@@ -59,9 +67,31 @@ func (m *Memory) CreateUser(u *domain.User) error {
 	if _, ok := m.users[u.ID]; ok {
 		return errors.New("el usuario ya existe")
 	}
+	key := emailKey(u.Email)
+	if _, ok := m.byEmail[key]; ok {
+		return ErrEmailEnUso
+	}
 	cp := *u
 	m.users[u.ID] = &cp
+	m.byEmail[key] = u.ID
 	return nil
+}
+
+func (m *Memory) GetUserByEmail(email string) (*domain.User, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	id, ok := m.byEmail[emailKey(email)]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	cp := *m.users[id]
+	return &cp, nil
+}
+
+// emailKey normaliza el email para comparar: los buzones no distinguen
+// mayúsculas en la práctica, y "Ana@X.com" no debe poder registrarse dos veces.
+func emailKey(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
 }
 
 func (m *Memory) GetUser(id string) (*domain.User, error) {
