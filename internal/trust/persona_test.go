@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -26,10 +27,20 @@ func servidorPersona(t *testing.T, respuestas map[string]string) (*Persona, *[]s
 			r.Header.Get("Authorization")+" | "+r.Header.Get("Persona-Version")+" | "+
 			r.Header.Get("Key-Inflection"))
 
-		for patron, cuerpo := range respuestas {
+		// Se prueban los patrones de más largo a más corto: recorrer el mapa
+		// tal cual dejaba que "/inquiries" ganara a
+		// "generate-one-time-link" según el orden aleatorio del mapa, y la
+		// prueba pasaba o fallaba por suerte.
+		patrones := make([]string, 0, len(respuestas))
+		for patron := range respuestas {
+			patrones = append(patrones, patron)
+		}
+		sort.Slice(patrones, func(i, j int) bool { return len(patrones[i]) > len(patrones[j]) })
+
+		for _, patron := range patrones {
 			if strings.Contains(r.URL.Path, patron) {
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(cuerpo))
+				_, _ = w.Write([]byte(respuestas[patron]))
 				return
 			}
 		}

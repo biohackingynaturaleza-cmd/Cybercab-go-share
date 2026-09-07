@@ -39,6 +39,11 @@ type Store interface {
 	GetTrip(id string) (*domain.Trip, error)
 	UpdateTrip(t *domain.Trip) error
 	ListOpenTrips() ([]*domain.Trip, error)
+	// TripsByHost devuelve los trayectos de una persona en cualquier estado.
+	// ListOpenTrips no sirve para esto: en cuanto un trayecto se llena o se
+	// cierra desaparecería de la lista de quien lo organizó, que es justo
+	// cuando más lo necesita.
+	TripsByHost(hostID string) ([]*domain.Trip, error)
 
 	// ReserveSeats ocupa plazas de forma atómica y devuelve ErrSinPlazas si no
 	// quedan suficientes. Es una sola operación a propósito: leer las plazas,
@@ -117,6 +122,7 @@ func (m *Memory) CreateUser(u *domain.User) error {
 		return ErrEmailEnUso
 	}
 	cp := *u
+	cp.Idioma = domain.NormalizarIdioma(cp.Idioma)
 	m.users[u.ID] = &cp
 	m.byEmail[key] = u.ID
 	return nil
@@ -223,6 +229,18 @@ func (m *Memory) ListOpenTrips() ([]*domain.Trip, error) {
 	out := make([]*domain.Trip, 0, len(m.tripOrder))
 	for _, id := range m.tripOrder {
 		if t := m.trips[id]; t != nil && t.Status == domain.TripOpen {
+			out = append(out, cloneTrip(t))
+		}
+	}
+	return out, nil
+}
+
+func (m *Memory) TripsByHost(hostID string) ([]*domain.Trip, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*domain.Trip, 0, 4)
+	for _, id := range m.tripOrder {
+		if t := m.trips[id]; t != nil && t.HostID == hostID {
 			out = append(out, cloneTrip(t))
 		}
 	}

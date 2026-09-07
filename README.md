@@ -283,6 +283,27 @@ que cualquiera reproduzca el resultado: `make simulacion`. Ver
 [`docs/ocupacion-de-flota.md`](docs/ocupacion-de-flota.md), con los supuestos
 declarados para poder discutirlos.
 
+## Avisos
+
+Cuando alguien pide plaza, la persona que organiza recibe un correo con lo que
+necesita para decidir: quién es, su nivel de confianza, cuántos kilómetros
+compartiríais y cuánto aportaría. Cuando se acepta o se rechaza, el pasajero se
+entera. Lo mismo con las anulaciones y con la identidad acreditada.
+
+Cada uno en **su** idioma, el que eligió al registrarse.
+
+Dos reglas gobiernan el diseño:
+
+- **Un fallo de correo no puede deshacer nada.** Los avisos se encolan y salen
+  aparte; si el servidor de correo está caído, la reserva se hizo igual. La cola
+  nunca bloquea ni devuelve error a quien estaba haciendo otra cosa.
+- **Se avisa de lo que pasa, no de cada paso.** El correo de identidad
+  acreditada sale cuando se cruza el umbral, no una vez por cada comprobación
+  superada: eso serían cuatro correos idénticos seguidos.
+
+Sin `SMTP_HOST` los correos se escriben en el registro en vez de enviarse, que
+es lo que se quiere en desarrollo.
+
 ## Cómo se cobra
 
 No viaje a viaje. Cobrar cada trayecto por separado exige un cargo al pasajero y

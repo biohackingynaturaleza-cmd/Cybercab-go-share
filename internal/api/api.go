@@ -59,6 +59,7 @@ func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger, o
 	mux.Handle("GET /api/v1/me", protegida(s.me))
 	mux.Handle("GET /api/v1/me/bookings", protegida(s.myBookings))
 	mux.Handle("GET /api/v1/me/resumen", protegida(s.resumen))
+	mux.Handle("GET /api/v1/me/trips", protegida(s.misTrayectos))
 
 	// Perfiles públicos: se ve con quién vas a compartir coche.
 	mux.HandleFunc("GET /api/v1/users/{id}", s.getUser)
@@ -120,6 +121,9 @@ type registerRequest struct {
 	Name     string `json:"name"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// Idioma en el que se le escribirá. Lo manda la interfaz según en qué
+	// idioma se esté usando.
+	Idioma string `json:"idioma"`
 }
 
 func (s *Server) register(w http.ResponseWriter, r *http.Request) {
@@ -127,7 +131,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	sess, err := s.svc.Register(req.Name, req.Email, req.Password)
+	sess, err := s.svc.Register(req.Name, req.Email, req.Password, req.Idioma)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -220,6 +224,21 @@ func (s *Server) createTrip(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listTrips(w http.ResponseWriter, r *http.Request) {
 	trips, err := s.svc.ListOpenTrips()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	views := make([]any, 0, len(trips))
+	for _, t := range trips {
+		views = append(views, tripView(t))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"trips": views})
+}
+
+// misTrayectos devuelve los trayectos propios en cualquier estado: los llenos y
+// los ya realizados también hacen falta, que es cuando hay que cerrarlos.
+func (s *Server) misTrayectos(w http.ResponseWriter, r *http.Request) {
+	trips, err := s.svc.MisTrayectos(actor(r))
 	if err != nil {
 		writeError(w, err)
 		return

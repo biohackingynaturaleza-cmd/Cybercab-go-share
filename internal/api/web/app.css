@@ -543,3 +543,19 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 }
 .idiomas button:hover { color: var(--texto); }
 .idiomas button[aria-current="true"] { background: var(--capa-3); color: var(--acento); }
+
+/* Cierre de un viaje. Aparece dentro de la tarjeta del trayecto, no en otra
+   pantalla: cerrar un viaje es algo que se hace de pie, al bajarse del coche. */
+.cerrar {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--borde);
+}
+.cerrar h3 {
+  font: 650 13px var(--sans);
+  margin: 0 0 4px;
+}
+.cerrar p { font-size: 12.5px; margin-bottom: 11px; }
+.cerrar .campos-2 { margin-bottom: 10px; }
+.cerrar .acciones { display: flex; gap: 8px; }
+.cerrar .acciones .btn-1 { flex: 1; }

@@ -135,7 +135,7 @@ func registrar(t *testing.T, srv *entorno, name, email string) sesion {
 	t.Helper()
 	var s sesion
 	code := do(t, srv, http.MethodPost, "/api/v1/auth/register", "",
-		map[string]string{"name": name, "email": email, "password": password}, &s)
+		map[string]string{"name": name, "email": email, "password": password, "idioma": "es"}, &s)
 	if code != http.StatusCreated {
 		t.Fatalf("registro de %s: código = %d", name, code)
 	}
@@ -153,7 +153,7 @@ func registrarSinVerificar(t *testing.T, srv *entorno, name, email string) sesio
 	t.Helper()
 	var s sesion
 	code := do(t, srv, http.MethodPost, "/api/v1/auth/register", "",
-		map[string]string{"name": name, "email": email, "password": password}, &s)
+		map[string]string{"name": name, "email": email, "password": password, "idioma": "es"}, &s)
 	if code != http.StatusCreated {
 		t.Fatalf("registro de %s: código = %d", name, code)
 	}

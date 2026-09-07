@@ -25,11 +25,11 @@ func nuevoEscenario(t *testing.T, vehicle domain.VehicleType, exige trust.Level)
 	t.Helper()
 	svc, identidad := newTestService(t)
 
-	hostSess, err := svc.Register("Ana", "ana@example.com", testPassword)
+	hostSess, err := svc.Register("Ana", "ana@example.com", testPassword, "es")
 	if err != nil {
 		t.Fatalf("Register(host): %v", err)
 	}
-	pasajeroSess, err := svc.Register("Bruno", "bruno@example.com", testPassword)
+	pasajeroSess, err := svc.Register("Bruno", "bruno@example.com", testPassword, "es")
 	if err != nil {
 		t.Fatalf("Register(pasajero): %v", err)
 	}
@@ -119,8 +119,8 @@ func TestElRequisitoCorreEnLasDosDirecciones(t *testing.T) {
 	// alguien sin verificar podría publicar un viaje y pedir identidad
 	// acreditada a los demás.
 	svc, identidad := newTestService(t)
-	hostSess, _ := svc.Register("Ana", "ana@example.com", testPassword)
-	pasajeroSess, _ := svc.Register("Bruno", "bruno@example.com", testPassword)
+	hostSess, _ := svc.Register("Ana", "ana@example.com", testPassword, "es")
+	pasajeroSess, _ := svc.Register("Bruno", "bruno@example.com", testPassword, "es")
 
 	// Quien organiza solo llega a básico; el pasajero está verificado.
 	acreditar(t, svc, identidad, hostSess.User.ID, trust.LevelBasico)
@@ -194,7 +194,7 @@ func TestLaPlazaNoSeRetieneSiFallaLaConfianza(t *testing.T) {
 
 func TestFlujoDeVerificacion(t *testing.T) {
 	svc, identidad := newTestService(t)
-	sess, _ := svc.Register("Ana", "ana@example.com", testPassword)
+	sess, _ := svc.Register("Ana", "ana@example.com", testPassword, "es")
 	ctx := context.Background()
 
 	abierta, check, err := svc.IniciarVerificacion(ctx, sess.User.ID, trust.CheckGovernmentID)
@@ -235,7 +235,7 @@ func TestFlujoDeVerificacion(t *testing.T) {
 
 func TestUnRechazoNoSePuedePisarConUnVeredictoPosterior(t *testing.T) {
 	svc, identidad := newTestService(t)
-	sess, _ := svc.Register("Ana", "ana@example.com", testPassword)
+	sess, _ := svc.Register("Ana", "ana@example.com", testPassword, "es")
 	ctx := context.Background()
 
 	abierta, _, _ := svc.IniciarVerificacion(ctx, sess.User.ID, trust.CheckGovernmentID)
@@ -257,7 +257,7 @@ func TestUnRechazoNoSePuedePisarConUnVeredictoPosterior(t *testing.T) {
 
 func TestNoSePuedeAbrirDosVecesLaMismaComprobacion(t *testing.T) {
 	svc, _ := newTestService(t)
-	sess, _ := svc.Register("Ana", "ana@example.com", testPassword)
+	sess, _ := svc.Register("Ana", "ana@example.com", testPassword, "es")
 	ctx := context.Background()
 
 	if _, _, err := svc.IniciarVerificacion(ctx, sess.User.ID, trust.CheckPhone); err != nil {
@@ -270,7 +270,7 @@ func TestNoSePuedeAbrirDosVecesLaMismaComprobacion(t *testing.T) {
 
 func TestElPerfilNoFiltraDatosSensibles(t *testing.T) {
 	svc, identidad := newTestService(t)
-	sess, _ := svc.Register("Ana", "ana@example.com", testPassword)
+	sess, _ := svc.Register("Ana", "ana@example.com", testPassword, "es")
 	acreditar(t, svc, identidad, sess.User.ID, trust.LevelVerificado)
 
 	p, err := svc.PerfilDe(sess.User.ID)

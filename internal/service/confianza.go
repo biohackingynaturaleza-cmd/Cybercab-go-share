@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/notify"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/store"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/trust"
 )
@@ -137,6 +138,11 @@ func (s *Service) RefrescarVerificacion(ctx context.Context, providerRef string)
 // Un mismo trámite puede resolver varias: los proveedores comprueban el
 // documento y la cara en un solo paso, y hacer repetirlo sería absurdo.
 func (s *Service) aplicarVeredicto(check *trust.Check, outcome *trust.Outcome) error {
+	// El nivel de antes, para poder avisar solo cuando de verdad cambia.
+	// Avisar por cada comprobación mandaba cuatro correos idénticos a quien
+	// acababa de verificarse: eso no es informar, es hacer spam.
+	nivelAntes, _ := s.NivelDe(check.UserID)
+
 	aplicar := func(c *trust.Check) error {
 		c.Status = outcome.Status
 		c.RejectionReason = outcome.Reason
@@ -149,7 +155,16 @@ func (s *Service) aplicarVeredicto(check *trust.Check, outcome *trust.Outcome) e
 	if err := aplicar(check); err != nil {
 		return err
 	}
-	if outcome.Status != trust.StatusVerified || len(outcome.Cubre) == 0 {
+
+	if outcome.Status == trust.StatusRejected {
+		s.avisar(check.UserID, notify.SucesoIdentidadRechazada, nil)
+	}
+
+	if outcome.Status != trust.StatusVerified {
+		return nil
+	}
+	if len(outcome.Cubre) == 0 {
+		s.avisarSiSubeDeNivel(check.UserID, nivelAntes)
 		return nil
 	}
 
@@ -168,7 +183,21 @@ func (s *Service) aplicarVeredicto(check *trust.Check, outcome *trust.Outcome) e
 			return err
 		}
 	}
+
+	s.avisarSiSubeDeNivel(check.UserID, nivelAntes)
 	return nil
+}
+
+// avisarSiSubeDeNivel manda el correo solo cuando la persona cruza a
+// verificado, no cada vez que supera una comprobación suelta.
+func (s *Service) avisarSiSubeDeNivel(userID string, antes trust.Level) {
+	ahora, err := s.NivelDe(userID)
+	if err != nil {
+		return
+	}
+	if antes < trust.LevelVerificado && ahora >= trust.LevelVerificado {
+		s.avisar(userID, notify.SucesoIdentidadVerificada, nil)
+	}
 }
 
 // AplicarAvisoDeIdentidad procesa el aviso que envía el proveedor cuando

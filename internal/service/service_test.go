@@ -10,6 +10,7 @@ import (
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/geo"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/matching"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/notify"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/store"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/trust"
 )
@@ -34,6 +35,13 @@ const testPassword = "contraseña-de-prueba"
 // propio, rutas en línea recta y proveedor de identidad manual, sin depender
 // de la red.
 func newTestService(t *testing.T) (*Service, *trust.Manual) {
+	svc, identidad, _ := newTestServiceConAvisos(t)
+	return svc, identidad
+}
+
+// newTestServiceConAvisos añade el grabador, para las pruebas que comprueban a
+// quién se avisa.
+func newTestServiceConAvisos(t *testing.T) (*Service, *trust.Manual, *notify.Grabador) {
 	t.Helper()
 	secret, err := auth.GenerateSecret()
 	if err != nil {
@@ -44,7 +52,12 @@ func newTestService(t *testing.T) (*Service, *trust.Manual) {
 		t.Fatalf("NewTokenIssuer: %v", err)
 	}
 	identidad := trust.NewManual("http://test")
-	return New(store.NewMemory(), Config{Tokens: tokens, Identidad: identidad}), identidad
+	avisos := &notify.Grabador{}
+	svc := New(store.NewMemory(), Config{
+		Tokens: tokens, Identidad: identidad, Avisos: avisos,
+		PublicURL: "https://app.ejemplo.test",
+	})
+	return svc, identidad, avisos
 }
 
 // acreditar hace pasar a alguien por el flujo real de verificación hasta
@@ -89,12 +102,12 @@ func newFixture(t *testing.T, vehicle domain.VehicleType) fixture {
 	t.Helper()
 	svc, identidad := newTestService(t)
 
-	hostSess, err := svc.Register("Ana", "ana@example.com", testPassword)
+	hostSess, err := svc.Register("Ana", "ana@example.com", testPassword, "es")
 	if err != nil {
 		t.Fatalf("Register(host): %v", err)
 	}
 	host := hostSess.User
-	riderSess, err := svc.Register("Bruno", "bruno@example.com", testPassword)
+	riderSess, err := svc.Register("Bruno", "bruno@example.com", testPassword, "es")
 	if err != nil {
 		t.Fatalf("Register(rider): %v", err)
 	}
@@ -231,7 +244,7 @@ func TestCancelarUnaReservaLiberaLaPlaza(t *testing.T) {
 
 func TestNoSePuedeReservarSinPlazas(t *testing.T) {
 	f := newFixture(t, domain.VehicleCybercab)
-	terceroSess, _ := f.svc.Register("Clara", "clara@example.com", testPassword)
+	terceroSess, _ := f.svc.Register("Clara", "clara@example.com", testPassword, "es")
 	tercero := terceroSess.User
 	acreditar(t, f.svc, f.identidad, tercero.ID, trust.LevelVerificado)
 

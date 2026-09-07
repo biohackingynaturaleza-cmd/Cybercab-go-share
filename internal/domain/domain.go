@@ -52,11 +52,33 @@ type User struct {
 	Email string `json:"email"`
 	// PasswordHash nunca sale de la API: el tag `json:"-"` evita que se filtre
 	// aunque alguien serialice el usuario entero por descuido.
-	PasswordHash string    `json:"-"`
-	Rating       float64   `json:"rating"`
-	RatingCount  int       `json:"rating_count"`
-	RideCount    int       `json:"ride_count"`
-	CreatedAt    time.Time `json:"created_at"`
+	PasswordHash string `json:"-"`
+	// Idioma es en el que se le escribe: "en" o "es".
+	Idioma      string    `json:"idioma"`
+	Rating      float64   `json:"rating"`
+	RatingCount int       `json:"rating_count"`
+	RideCount   int       `json:"ride_count"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// IdiomaPorDefecto es el inglés: el servicio opera en Austin.
+const IdiomaPorDefecto = "en"
+
+// IdiomasSoportados son los que la aplicación sabe hablar.
+var IdiomasSoportados = []string{"en", "es"}
+
+// NormalizarIdioma devuelve un idioma que la aplicación sabe hablar.
+//
+// Se aplica en todos los caminos que crean un usuario, no solo en el registro:
+// un idioma vacío o desconocido tiene que convertirse en uno válido antes de
+// llegar a la base de datos, que lo rechazaría.
+func NormalizarIdioma(idioma string) string {
+	for _, v := range IdiomasSoportados {
+		if idioma == v {
+			return idioma
+		}
+	}
+	return IdiomaPorDefecto
 }
 
 // TripStatus es el ciclo de vida de un trayecto compartido.

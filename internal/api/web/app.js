@@ -171,7 +171,11 @@ async function enviarAcceso(ev) {
   btn.textContent = t(esAlta ? 'acceso.creando' : 'acceso.entrando');
   try {
     const sesion = esAlta
-      ? await api('POST', '/api/v1/auth/register', { name: nombre, email, password: clave })
+      // El idioma se manda al registrarse: es en el que se le escribirá
+      // después. Sin esto, quien usa la app en español recibía los correos en
+      // inglés.
+      ? await api('POST', '/api/v1/auth/register',
+          { name: nombre, email, password: clave, idioma: idioma() })
       : await api('POST', '/api/v1/auth/login', { email, password: clave });
 
     estado.token = sesion.token;
@@ -670,8 +674,10 @@ async function publicar() {
 /* ============ Mis trayectos ============ */
 
 async function cargarMisTrayectos() {
-  const r = await api('GET', '/api/v1/trips');
-  estado.mios = (r.trips || []).filter((t) => t.host_id === estado.usuario.id);
+  // Los propios en cualquier estado: filtrar los abiertos hacía desaparecer un
+  // trayecto en cuanto se llenaba, justo cuando hay que cerrarlo.
+  const r = await api('GET', '/api/v1/me/trips');
+  estado.mios = r.trips || [];
   for (const t of estado.mios) {
     try {
       const b = await api('GET', `/api/v1/trips/${t.id}/bookings`);
@@ -711,13 +717,96 @@ function pintarMisTrayectos() {
           <span>${escapar(t(v.route_source === 'osrm' ? 'mios.rutareal' : 'mios.rutaest'))}</span>
         </div>
         ${peticiones}
+        ${cierreDe(v)}
       </article>`;
   }).join('');
+
+  $('mios').querySelectorAll('[data-abrir-cierre]').forEach((b) =>
+    b.addEventListener('click', () => {
+      cierreAbierto = b.dataset.abrirCierre;
+      pintarMisTrayectos();
+      $('importe-' + cierreAbierto)?.focus();
+    }));
+  $('mios').querySelectorAll('[data-cancelar-cierre]').forEach((b) =>
+    b.addEventListener('click', () => { cierreAbierto = null; pintarMisTrayectos(); }));
+  $('mios').querySelectorAll('[data-cerrar-viaje]').forEach((b) =>
+    b.addEventListener('click', () => cerrarViaje(b.dataset.cerrarViaje, b)));
 
   $('mios').querySelectorAll('[data-aceptar]').forEach((b) =>
     b.addEventListener('click', () => decidir(b.dataset.aceptar, true, b)));
   $('mios').querySelectorAll('[data-rechazar]').forEach((b) =>
     b.addEventListener('click', () => decidir(b.dataset.rechazar, false, b)));
+}
+
+/* cierreAbierto es el trayecto cuyo formulario de cierre está desplegado. Solo
+   uno a la vez: desplegarlos todos llenaría el panel de campos vacíos. */
+let cierreAbierto = null;
+
+/* cierreDe pinta el cierre de un viaje que ya se puede dar por hecho.
+ *
+ * Sin esto el bucle del producto no se cerraba nunca: ningún viaje se
+ * completaba, así que no se anotaba nada en el libro y el ahorro acumulado se
+ * quedaba siempre en cero. */
+function cierreDe(v) {
+  if (v.status === 'completed' || v.status === 'cancelled') return '';
+  // Solo tiene sentido cerrar un viaje que ya ha salido y que alguien
+  // compartió: sin pasajeros no hay nada que repartir.
+  const haSalido = new Date(v.departure_time) <= new Date();
+  if (!haSalido || !(v.confirmadas || []).length) return '';
+
+  if (cierreAbierto !== v.id) {
+    return `<div class="cerrar">
+      <button class="btn-2 btn-fino" data-abrir-cierre="${v.id}">${escapar(t('cerrar.abrir'))}</button>
+    </div>`;
+  }
+
+  return `<div class="cerrar">
+    <h3>${escapar(t('cerrar.titulo'))}</h3>
+    <p>${escapar(t('cerrar.explica'))}</p>
+    <div class="campos-2">
+      <div class="campo">
+        <label for="importe-${v.id}">${escapar(t('cerrar.importe'))}</label>
+        <input id="importe-${v.id}" type="number" step="0.01" min="0"
+               placeholder="${escapar(t('cerrar.importe.ph'))}">
+      </div>
+      <div class="campo">
+        <label for="ref-${v.id}">${escapar(t('cerrar.ref'))}</label>
+        <input id="ref-${v.id}" placeholder="${escapar(t('cerrar.ref.ph'))}">
+      </div>
+    </div>
+    <div class="acciones">
+      <button class="btn-1 btn-fino" data-cerrar-viaje="${v.id}">${escapar(t('cerrar.boton'))}</button>
+      <button class="btn-2 btn-fino" data-cancelar-cierre="1">${escapar(t('cerrar.cancelar'))}</button>
+    </div>
+  </div>`;
+}
+
+async function cerrarViaje(tripID, boton) {
+  const importe = parseFloat($('importe-' + tripID)?.value || '');
+  if (!Number.isFinite(importe) || importe <= 0) {
+    toast(t('aviso.importe.t'), parrafo(t('aviso.importe.d')), 'error');
+    $('importe-' + tripID)?.focus();
+    return;
+  }
+
+  boton.disabled = true;
+  boton.textContent = t('cerrar.cerrando');
+  try {
+    await api('POST', `/api/v1/trips/${tripID}/completar`, {
+      // El importe se manda en céntimos, que es como lo lleva todo el resto
+      // del sistema: los decimales en coma flotante no tocan el dinero.
+      importe_real_cents: Math.round(importe * 100),
+      ref_viaje: ($('ref-' + tripID)?.value || '').trim(),
+    });
+    cierreAbierto = null;
+    await refrescar();
+    pintar();
+    toast(t('aviso.cerrado.t'), parrafo(t('aviso.cerrado.d')), 'bien');
+  } catch (e) {
+    explicarError(e);
+    boton.disabled = false;
+    boton.textContent = t('cerrar.boton');
+  }
 }
 
 /* Aceptar a alguien obliga a asumir la responsabilidad que imponen los términos

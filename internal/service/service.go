@@ -15,6 +15,7 @@ import (
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/fleet"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/geo"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/matching"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/notify"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/pricing"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/routing"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/store"
@@ -42,6 +43,12 @@ type Config struct {
 	Flota fleet.Provider
 	// Log recoge los avisos que no impiden seguir.
 	Log *slog.Logger
+	// Avisos notifica a la gente lo que pasa con sus viajes. Nunca falla ni
+	// bloquea: si el correo se cae, la reserva se hizo igual.
+	Avisos notify.Notificador
+	// PublicURL es la dirección desde la que se llega a la app, para los
+	// enlaces de los correos.
+	PublicURL string
 	// Identidad verifica quién es cada persona. Sin él no se pueden acreditar
 	// identidades, y ningún trayecto que exija nivel verificado admitirá a
 	// nadie: es deliberado, preferimos no dar viajes a darlos sin verificar.
@@ -78,6 +85,12 @@ func New(s store.Store, cfg Config) *Service {
 	if cfg.Flota == nil {
 		cfg.Flota = fleet.NewTraspaso()
 	}
+	if cfg.Avisos == nil {
+		cfg.Avisos = notify.Silencio{}
+	}
+	if cfg.PublicURL == "" {
+		cfg.PublicURL = "http://localhost:8080"
+	}
 	return &Service{store: s, cfg: cfg}
 }
 
@@ -94,7 +107,7 @@ type Session struct {
 }
 
 // Register da de alta a una persona y le abre sesión.
-func (s *Service) Register(name, email, password string) (*Session, error) {
+func (s *Service) Register(name, email, password, idioma string) (*Session, error) {
 	if name == "" || email == "" {
 		return nil, fmt.Errorf("%w: nombre y email son obligatorios", domain.ErrValidation)
 	}
@@ -111,6 +124,7 @@ func (s *Service) Register(name, email, password string) (*Session, error) {
 		Name:         name,
 		Email:        strings.TrimSpace(email),
 		PasswordHash: hash,
+		Idioma:       domain.NormalizarIdioma(idioma),
 		Rating:       5,
 		CreatedAt:    s.cfg.Now(),
 	}
@@ -240,6 +254,11 @@ func (s *Service) GetTrip(id string) (*domain.Trip, error) { return s.store.GetT
 // ListOpenTrips devuelve los trayectos que admiten pasajeros.
 func (s *Service) ListOpenTrips() ([]*domain.Trip, error) { return s.store.ListOpenTrips() }
 
+// MisTrayectos devuelve los trayectos de una persona en cualquier estado.
+func (s *Service) MisTrayectos(hostID string) ([]*domain.Trip, error) {
+	return s.store.TripsByHost(hostID)
+}
+
 // CancelTrip anula un trayecto y con él sus reservas activas.
 func (s *Service) CancelTrip(tripID, hostID string) (*domain.Trip, error) {
 	t, err := s.store.GetTrip(tripID)
@@ -253,14 +272,18 @@ func (s *Service) CancelTrip(tripID, hostID string) (*domain.Trip, error) {
 	if err != nil {
 		return nil, err
 	}
+	var afectados []*domain.Booking
 	for _, b := range bookings {
 		if b.Status.Active() {
 			b.Status = domain.BookingCancelled
 			if err := s.store.UpdateBooking(b); err != nil {
 				return nil, err
 			}
+			afectados = append(afectados, b)
 		}
 	}
+	s.avisarTrayectoAnulado(t, afectados)
+
 	t.Status = domain.TripCancelled
 	t.SeatsTaken = 0
 	if err := s.store.UpdateTrip(t); err != nil {
@@ -422,6 +445,8 @@ func (s *Service) RequestBooking(in BookInput) (*domain.Booking, error) {
 		_ = s.store.ReleaseSeats(t.ID, in.Seats)
 		return nil, err
 	}
+
+	s.avisarPlazaPedida(t, b)
 	return b, nil
 }
 
@@ -476,6 +501,7 @@ func (s *Service) DecideBooking(in DecisionInput) (*domain.Booking, error) {
 		if err := s.store.UpdateBooking(b); err != nil {
 			return nil, err
 		}
+		s.avisarDecision(t, b, true)
 		return b, nil
 	}
 
@@ -483,6 +509,7 @@ func (s *Service) DecideBooking(in DecisionInput) (*domain.Booking, error) {
 	if err := s.store.UpdateBooking(b); err != nil {
 		return nil, err
 	}
+	s.avisarDecision(t, b, false)
 	return b, s.releaseSeats(t, b.Seats)
 }
 
@@ -506,6 +533,7 @@ func (s *Service) CancelBooking(bookingID, actorID string) (*domain.Booking, err
 	if err := s.store.UpdateBooking(b); err != nil {
 		return nil, err
 	}
+	s.avisarReservaAnulada(t, b, actorID)
 	return b, s.releaseSeats(t, b.Seats)
 }
 

@@ -111,16 +111,17 @@ func (p *Postgres) Migrate(ctx context.Context) error {
 
 func (p *Postgres) CreateUser(u *domain.User) error {
 	_, err := p.pool.Exec(context.Background(), `
-		INSERT INTO users (id, name, email, password_hash, rating, rating_count, ride_count, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		u.ID, u.Name, u.Email, u.PasswordHash, u.Rating, u.RatingCount, u.RideCount, u.CreatedAt)
+		INSERT INTO users (id, name, email, password_hash, idioma, rating, rating_count, ride_count, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		u.ID, u.Name, u.Email, u.PasswordHash, domain.NormalizarIdioma(u.Idioma),
+		u.Rating, u.RatingCount, u.RideCount, u.CreatedAt)
 	if esViolacionUnica(err, "users_email_key") {
 		return ErrEmailEnUso
 	}
 	return err
 }
 
-const selectUser = `SELECT id, name, email, password_hash, rating, rating_count, ride_count, created_at FROM users`
+const selectUser = `SELECT id, name, email, password_hash, idioma, rating, rating_count, ride_count, created_at FROM users`
 
 func (p *Postgres) GetUser(id string) (*domain.User, error) {
 	return p.scanUser(p.pool.QueryRow(context.Background(), selectUser+` WHERE id = $1`, id))
@@ -133,7 +134,7 @@ func (p *Postgres) GetUserByEmail(email string) (*domain.User, error) {
 
 func (p *Postgres) scanUser(row pgx.Row) (*domain.User, error) {
 	var u domain.User
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.Rating, &u.RatingCount, &u.RideCount, &u.CreatedAt)
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.Idioma, &u.Rating, &u.RatingCount, &u.RideCount, &u.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -232,6 +233,15 @@ func (p *Postgres) ListOpenTrips() ([]*domain.Trip, error) {
 // ReserveSeats ocupa plazas en una única sentencia. La condición del WHERE es
 // lo que garantiza que dos peticiones simultáneas no se lleven la misma plaza:
 // la segunda no encuentra fila que actualizar.
+func (p *Postgres) TripsByHost(hostID string) ([]*domain.Trip, error) {
+	rows, err := p.pool.Query(context.Background(),
+		selectTrip+` WHERE host_id = $1 ORDER BY departure_time DESC`, hostID)
+	if err != nil {
+		return nil, err
+	}
+	return scanTrips(rows)
+}
+
 func (p *Postgres) ReserveSeats(tripID string, seats int) error {
 	tag, err := p.pool.Exec(context.Background(), `
 		UPDATE trips SET

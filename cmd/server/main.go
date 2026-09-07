@@ -15,6 +15,7 @@ import (
 
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/api"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/auth"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/notify"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/pricing"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/routing"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/service"
@@ -24,6 +25,7 @@ import (
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	addr := ":" + envString("PORT", "8080")
 
 	tariff := pricing.DefaultTariff()
 	tariff.BaseCents = envInt64("FARE_BASE_CENTS", tariff.BaseCents)
@@ -41,6 +43,9 @@ func main() {
 
 	identidad, personaReal := buildIdentityProvider(log)
 
+	avisos := buildAvisos(log)
+	defer avisos.Cerrar()
+
 	db, closeDB, err := buildStore(context.Background(), log)
 	if err != nil {
 		log.Error("no se pudo preparar el almacén", "err", err)
@@ -54,6 +59,9 @@ func main() {
 		Tokens:    tokens,
 		Router:    buildRouter(log, speed),
 		Identidad: identidad,
+		Avisos:    avisos,
+		PublicURL: envString("PUBLIC_URL", "http://localhost"+addr),
+		Log:       log,
 	})
 
 	if os.Getenv("SEED_DEMO") == "1" {
@@ -64,7 +72,6 @@ func main() {
 		}
 	}
 
-	addr := ":" + envString("PORT", "8080")
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           api.NewServer(svc, tokens, log, opcionesDeServidor(identidad, personaReal)...),
@@ -139,6 +146,35 @@ func buildTokenIssuer(log *slog.Logger) (*auth.TokenIssuer, error) {
 	}
 	ttl := time.Duration(envInt64("AUTH_TOKEN_TTL_HOURS", 24)) * time.Hour
 	return auth.NewTokenIssuer(secret, ttl)
+}
+
+// buildAvisos elige por dónde salen los correos.
+//
+// Con SMTP_HOST se envían de verdad. Sin él se escriben en el registro, que en
+// desarrollo es lo que se quiere: se ve exactamente qué se habría mandado, sin
+// montar un servidor de correo y sin riesgo de escribir a direcciones reales
+// desde una máquina de pruebas.
+func buildAvisos(log *slog.Logger) *notify.Cola {
+	host := os.Getenv("SMTP_HOST")
+	if host == "" {
+		if os.Getenv("ENV") == "production" {
+			log.Error("sin SMTP_HOST no se avisa a nadie: quien organiza no " +
+				"se enterará de que le han pedido plaza")
+		} else {
+			log.Warn("correo en modo registro: los avisos se escriben aquí, no se envían")
+		}
+		return notify.NuevaCola(&notify.Registro{Log: log}, log, 256)
+	}
+
+	enviador, err := notify.NuevoSMTP(host, os.Getenv("SMTP_PORT"),
+		os.Getenv("SMTP_USER"), os.Getenv("SMTP_PASSWORD"),
+		envString("SMTP_FROM", "Cybercab Go Share <no-reply@localhost>"))
+	if err != nil {
+		log.Error("correo mal configurado, se sigue en modo registro", "err", err)
+		return notify.NuevaCola(&notify.Registro{Log: log}, log, 256)
+	}
+	log.Info("correo activo", "servidor", host)
+	return notify.NuevaCola(enviador, log, 512)
 }
 
 // buildIdentityProvider elige quién acredita las identidades.

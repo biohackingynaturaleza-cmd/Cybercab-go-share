@@ -60,6 +60,21 @@ despliegue en un problema serio y silencioso.
 |---|---|
 | `DATABASE_URL` | Sin ella los datos viven en memoria y se pierden al reiniciar |
 | `AUTH_SECRET` | Mínimo 32 bytes. Si se generase uno nuevo en cada arranque, todas las sesiones caducarían en cada despliegue y no se podría escalar a varias réplicas |
+| `SMTP_HOST` y `SMTP_FROM` | Sin correo nadie se entera de nada: quien organiza no sabrá que le han pedido plaza |
+| `PUBLIC_URL` | La dirección que se pone en los enlaces de los correos |
+
+### Correo
+
+| Variable | Por defecto |
+|---|---|
+| `SMTP_HOST` | — Sin él, los correos se escriben en el registro en vez de enviarse |
+| `SMTP_PORT` | `587` |
+| `SMTP_USER`, `SMTP_PASSWORD` | Vacías: se conecta sin autenticar (solo con un relé local) |
+| `SMTP_FROM` | `Cybercab Go Share <no-reply@localhost>` |
+
+En desarrollo, sin `SMTP_HOST`, los correos aparecen enteros en el registro. Se
+ve exactamente qué se habría mandado sin montar un servidor y sin riesgo de
+escribir a direcciones reales desde una máquina de pruebas.
 
 ### Antes de abrir a usuarios reales
 
