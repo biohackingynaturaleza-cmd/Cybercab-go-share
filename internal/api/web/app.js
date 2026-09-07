@@ -2,41 +2,44 @@
 
 /* Cybercab Go Share — interfaz.
  *
- * Sin dependencias externas, a propósito: la política de seguridad de la página
- * solo permite scripts de este mismo servidor, así que no hay CDN que pueda
- * caerse, cambiar bajo los pies o rastrear a quien entra.
+ * Sin dependencias externas a propósito: la política de seguridad solo permite
+ * scripts de este mismo servidor, así que no hay CDN que pueda caerse, cambiar
+ * bajo los pies o rastrear a quien entra.
  *
- * El mapa es esquemático y no de calles porque lo que este producto tiene que
- * enseñar es si dos trayectos se solapan y cuánto. De navegar ya se encarga el
- * propio robotaxi. */
+ * El mapa es esquemático y no de calles porque lo que hay que enseñar es si dos
+ * trayectos se solapan y cuánto. De navegar ya se encarga el robotaxi. */
 
 const $ = (id) => document.getElementById(id);
+const ANIM = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const estado = {
   token: localStorage.getItem('token') || '',
   usuario: null,
   perfil: null,
+  resumen: null,
+  verificaciones: [],
+  config: null,
   zonas: [],
   modo: 'buscar',
   resultados: [],
   seleccionado: null,
   mios: [],
+  buscando: false,
 };
 
-/* ---------- Cliente de la API ---------- */
+/* ============ Cliente de la API ============ */
 
 async function api(metodo, ruta, cuerpo) {
   const cab = { 'Content-Type': 'application/json' };
-  if (estado.token) cab['Authorization'] = 'Bearer ' + estado.token;
+  if (estado.token) cab.Authorization = 'Bearer ' + estado.token;
 
   const resp = await fetch(ruta, {
-    method: metodo,
-    headers: cab,
+    method: metodo, headers: cab,
     body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo),
   });
 
   let datos = null;
-  try { datos = await resp.json(); } catch { /* respuesta sin cuerpo */ }
+  try { datos = await resp.json(); } catch { /* sin cuerpo */ }
 
   if (!resp.ok) {
     const err = new Error((datos && datos.error) || `Error ${resp.status}`);
@@ -47,45 +50,125 @@ async function api(metodo, ruta, cuerpo) {
   return datos;
 }
 
-/* ---------- Avisos ---------- */
+/* ============ Notificaciones ============ */
 
-function avisar(texto, tipo = 'aviso', extra = '') {
-  $('avisos').innerHTML =
-    `<div class="aviso ${tipo}"><strong>${escapar(texto)}</strong>${extra}</div>`;
-  $('avisos').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+function toast(titulo, detalle = '', tipo = '') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + tipo;
+  el.innerHTML = `<strong>${escapar(titulo)}</strong>${detalle}`;
+  $('avisos').appendChild(el);
+
+  const cerrar = () => {
+    el.classList.add('se-va');
+    el.addEventListener('animationend', () => el.remove(), { once: true });
+  };
+  const t = setTimeout(cerrar, tipo === 'error' ? 8000 : 5000);
+  el.addEventListener('click', () => { clearTimeout(t); cerrar(); });
 }
-
-function limpiarAvisos() { $('avisos').innerHTML = ''; }
 
 function escapar(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-/* Traduce un fallo de confianza en algo accionable: decir "no puedes" sin
+/* Un fallo de confianza se traduce en algo accionable: decir "no puedes" sin
    decir qué hacer solo consigue que la gente se vaya. */
+function parrafo(txt) { return `<p style="margin:6px 0 0">${escapar(txt)}</p>`; }
+
+/* Un fallo de confianza se traduce en algo accionable, y se compone aquí en vez
+   de enseñar el texto del servidor: así la explicación sale en el idioma de
+   quien la lee. */
 function explicarError(e) {
   if (e.status === 403 && e.datos.te_falta) {
     const faltan = e.datos.te_falta.map(nombreComprobacion).join(', ');
-    avisar(e.datos.motivo || e.message,
-      'aviso',
-      `<p style="margin:8px 0 0">Te falta verificar: <b>${escapar(faltan)}</b>.</p>`);
+    toast(t('aviso.nopuedes.t'),
+      parrafo(e.datos.exigido ? textoSuelo(e.datos.exigido === 'verificado' ? 2 : 4) : '') +
+      parrafo(t('aviso.tefalta', { lista: faltan })), 'error');
     return;
   }
-  avisar(e.message, 'error');
+  toast(t('aviso.fallo.t'), parrafo(e.message), 'error');
 }
 
-/* ---------- Sesión ---------- */
+/* textoSuelo se compone en la interfaz a partir del aforo, no se copia del
+   servidor: el servidor devuelve datos, los idiomas los pone la interfaz. */
+function textoSuelo(plazas) {
+  return plazas <= 2 ? t('suelo.biplaza') : t('suelo.amplio', { n: plazas });
+}
 
-async function entrar(esAlta) {
+/* ============ Precios ============ */
+
+/* Mismo cálculo que el servidor. Se usa solo para enseñar estimaciones antes de
+   pedir nada; el importe que se cobra siempre lo decide el servidor. */
+function costeEstimado(km) {
+  const t = estado.config?.tarifa;
+  if (!t) return 0;
+  const min = km / (estado.config.velocidad_media_kmh || 45) * 60;
+  const total = t.base_cents + km * t.por_km_cents + min * t.por_minuto_cents;
+  return Math.max(t.minimo_cents, Math.round(total));
+}
+
+const R_TIERRA = 6371.0088;
+function distanciaKm(a, b) {
+  const rad = (g) => g * Math.PI / 180;
+  const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R_TIERRA * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/* Dólares con el formato de cada idioma. Se compone a mano porque el formato
+   automático en español produce "5,41 US$", que nadie escribe así. */
+function euros(cents) {
+  const n = (cents / 100).toLocaleString(idioma(), {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  });
+  return idioma() === 'es' ? `${n} $` : `$${n}`;
+}
+
+function fecha(d) {
+  return d.toLocaleString(idioma(),
+    { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+/* ============ Sesión ============ */
+
+let esAlta = true;
+
+function mostrarAcceso(alta) {
+  esAlta = alta;
+  $('portada').classList.add('oculto');
+  $('acceso').classList.remove('oculto');
+  $('acceso-titulo').textContent = t(alta ? 'acceso.crear' : 'acceso.entrar');
+  $('acceso-sub').textContent = t(alta ? 'acceso.sub.crear' : 'acceso.sub.entrar');
+  $('campo-nombre').classList.toggle('oculto', !alta);
+  $('btn-acceso').textContent = t(alta ? 'acceso.crear' : 'acceso.entrar');
+  $('clave').autocomplete = alta ? 'new-password' : 'current-password';
+  $('cambiar-texto').textContent = t(alta ? 'acceso.ya' : 'acceso.aun');
+  $('cambiar-modo').textContent = t(alta ? 'acceso.entrar.enlace' : 'acceso.crear.enlace');
+  (alta ? $('nombre') : $('email')).focus();
+}
+
+function volverAPortada() {
+  $('acceso').classList.add('oculto');
+  $('portada').classList.remove('oculto');
+}
+
+async function enviarAcceso(ev) {
+  ev.preventDefault();
   const email = $('email').value.trim();
   const clave = $('clave').value;
   const nombre = $('nombre').value.trim();
 
-  if (esAlta && !nombre) { avisar('Pon un nombre para que los demás sepan con quién viajan.', 'error'); return; }
+  if (esAlta && !nombre) {
+    toast(t('aviso.nombre.t'), parrafo(t('aviso.nombre.d')), 'error');
+    $('nombre').focus();
+    return;
+  }
 
   const btn = $('btn-acceso');
+  const antes = btn.textContent;
   btn.disabled = true;
+  btn.textContent = t(esAlta ? 'acceso.creando' : 'acceso.entrando');
   try {
     const sesion = esAlta
       ? await api('POST', '/api/v1/auth/register', { name: nombre, email, password: clave })
@@ -94,113 +177,179 @@ async function entrar(esAlta) {
     estado.token = sesion.token;
     estado.usuario = sesion.user;
     localStorage.setItem('token', estado.token);
-    limpiarAvisos();
-    await trasEntrar();
+    if (esAlta) toast(t('aviso.cuenta.t'), parrafo(t('aviso.cuenta.d')), 'bien');
+    await entrarEnLaApp();
   } catch (e) {
-    avisar(e.message, 'error');
+    toast(t('aviso.fallo.t'), parrafo(e.message), 'error');
   } finally {
     btn.disabled = false;
+    btn.textContent = antes;
   }
 }
 
-async function trasEntrar() {
-  await Promise.all([cargarPerfil(), cargarMisTrayectos()]);
-  pintar();
-}
-
-function salir() {
-  estado.token = '';
-  estado.usuario = null;
-  estado.perfil = null;
-  estado.resultados = [];
-  estado.mios = [];
-  localStorage.removeItem('token');
+async function entrarEnLaApp() {
+  $('acceso').classList.add('oculto');
+  $('portada').classList.add('oculto');
+  $('panel').hidden = false;
+  await refrescar();
   pintar();
   dibujarMapa();
 }
 
-async function recuperarSesion() {
-  if (!estado.token) return;
-  try {
-    estado.usuario = await api('GET', '/api/v1/me');
-    await trasEntrar();
-  } catch {
-    // Token caducado o inválido: se empieza de cero sin molestar a nadie.
-    salir();
-  }
+function salir() {
+  estado.token = '';
+  estado.usuario = estado.perfil = estado.resumen = null;
+  estado.resultados = []; estado.mios = []; estado.verificaciones = [];
+  estado.seleccionado = null;
+  localStorage.removeItem('token');
+  $('panel').hidden = true;
+  volverAPortada();
+  pintar();
+  dibujarMapa();
 }
 
-/* ---------- Confianza ---------- */
-
-const COMPROBACIONES = [
-  { id: 'email', nombre: 'Correo electrónico' },
-  { id: 'phone', nombre: 'Teléfono' },
-  { id: 'government_id', nombre: 'Documento de identidad' },
-  { id: 'selfie_liveness', nombre: 'Selfie con prueba de vida' },
-];
-
-function nombreComprobacion(id) {
-  const c = COMPROBACIONES.find((x) => x.id === id);
-  return c ? c.nombre.toLowerCase() : id;
-}
-
-async function cargarPerfil() {
+async function refrescar() {
   if (!estado.usuario) return;
-  estado.perfil = await api('GET', `/api/v1/users/${estado.usuario.id}/confianza`);
-  estado.verificaciones = (await api('GET', '/api/v1/me/verificaciones')).verificaciones || [];
+  const [perfil, verif, resumen] = await Promise.all([
+    api('GET', `/api/v1/users/${estado.usuario.id}/confianza`),
+    api('GET', '/api/v1/me/verificaciones'),
+    api('GET', '/api/v1/me/resumen'),
+  ]);
+  estado.perfil = perfil;
+  estado.verificaciones = verif.verificaciones || [];
+  estado.resumen = resumen;
+  await cargarMisTrayectos();
 }
 
-function comprobacionHecha(id) {
-  return (estado.verificaciones || []).some(
-    (v) => v.kind === id && v.status === 'verified');
+/* ============ Confianza ============ */
+
+const COMPROBACIONES = ['email', 'phone', 'government_id', 'selfie_liveness'];
+const DESBLOQUEA = { phone: 'check.phone.d', selfie_liveness: 'check.selfie_liveness.d' };
+
+function nombreComprobacion(id) { return t('check.' + id).toLowerCase(); }
+
+function hecha(id) {
+  return estado.verificaciones.some((v) => v.kind === id && v.status === 'verified');
 }
 
-async function verificar(id) {
+async function verificar(id, boton) {
+  boton.disabled = true;
+  boton.textContent = '…';
   try {
     const r = await api('POST', '/api/v1/me/verificaciones', { kind: id });
     const ref = r.verificacion.provider_ref;
-
-    // En desarrollo el proveedor no verifica nada y hay un atajo para
-    // resolverlo. En producción esto devuelve 404 y hay que completar el
-    // trámite en la URL del proveedor.
     try {
+      // En desarrollo hay un atajo. En producción esto no existe y hay que
+      // completar el trámite en la página del proveedor.
       await api('POST', `/api/v1/dev/verificaciones/${ref}/resolver`, { verificar: true });
     } catch {
       window.open(r.continuar_en, '_blank', 'noopener');
-      avisar('Completa la verificación en la ventana que se ha abierto y vuelve aquí.');
+      toast(t('aviso.completa.t'), parrafo(t('aviso.completa.d')));
     }
-    await cargarPerfil();
+    await refrescar();
+    const nivelAntes = estado.perfil?.nivel;
     pintar();
+    if (nivelAntes === 'verificado') {
+      toast(t('aviso.verificado.t'), parrafo(t('aviso.verificado.d')), 'bien');
+    }
   } catch (e) {
-    avisar(e.message, 'error');
+    explicarError(e);
+    pintar();
   }
 }
 
-/* ---------- Zonas y geometría ---------- */
+function pintarConfianza() {
+  const nivel = estado.perfil?.nivel || 'nuevo';
+  $('mi-nivel').textContent = t('nivel.' + nivel);
+  $('mi-nivel').className = 'nivel nivel-' + claseNivel(nivel);
 
-async function cargarZonas() {
-  const r = await api('GET', '/api/v1/zonas');
-  estado.zonas = r.zonas;
+  const total = COMPROBACIONES.length;
+  const listas = COMPROBACIONES.filter(hecha).length;
+  $('progreso-barra').style.width = Math.round(listas / total * 100) + '%';
 
-  for (const sel of ['origen', 'destino', 'o-origen', 'o-destino']) {
-    $(sel).innerHTML = estado.zonas
-      .map((z, i) => `<option value="${i}">${escapar(z.nombre)}</option>`).join('');
+  const verificado = nivel === 'verificado' || nivel === 'veterano';
+  $('confianza-texto').textContent = verificado
+    ? t('confianza.hecho')
+    : t('confianza.falta', { n: total - listas, total });
+
+  $('lista-comprobaciones').innerHTML = COMPROBACIONES.map((c) => {
+    const ok = hecha(c);
+    return `<li class="${ok ? 'hecha' : ''}">
+      <span>${escapar(t('check.' + c))}
+        ${!ok && DESBLOQUEA[c] ? `<span class="desbloquea">${escapar(t(DESBLOQUEA[c]))}</span>` : ''}</span>
+      ${ok ? `<span class="ok" aria-label="${escapar(t('nivel.verificado'))}">✓</span>`
+           : `<button class="btn-2 btn-fino" data-verificar="${c}">${escapar(t('confianza.verificar'))}</button>`}
+    </li>`;
+  }).join('');
+
+  $('lista-comprobaciones').querySelectorAll('[data-verificar]').forEach((b) =>
+    b.addEventListener('click', () => verificar(b.dataset.verificar, b)));
+}
+
+/* ============ Ahorro ============ */
+
+function pintarAhorro() {
+  const r = estado.resumen;
+
+  // El aviso de peticiones va antes que nada y con su propia condición: quien
+  // solo organiza viajes no tiene ahorro todavía, y ocultarle el aviso junto
+  // con la caja del ahorro le escondía justo lo único que tiene que hacer.
+  const pend = $('pendientes');
+  pend.classList.toggle('oculto', !r || !r.peticiones_por_responder);
+  if (r) {
+    $('pendientes-num').textContent = r.peticiones_por_responder;
+    pend.setAttribute('aria-label',
+      `${r.peticiones_por_responder} · ${t('pendientes.texto')}`);
   }
-  // Un par por defecto que tenga sentido: centro → aeropuerto.
-  const centro = estado.zonas.findIndex((z) => z.nombre.startsWith('Centro'));
-  const aero = estado.zonas.findIndex((z) => z.nombre.includes('Aeropuerto'));
+
+  const caja = $('caja-ahorro');
+  const hayAlgo = r && (r.viajes_compartidos || r.viajes_pendientes);
+  caja.classList.toggle('oculto', !hayAlgo);
+  if (!hayAlgo) return;
+
+  // Mientras no se haya viajado todavía no hay ahorro, pero sí una previsión.
+  // Enseñar "0,00 $" a quien acaba de reservar su primer viaje es desanimarle
+  // justo cuando más ilusión tiene.
+  const yaViajado = r.viajes_compartidos > 0;
+  $('ahorro-cifra').textContent = euros(yaViajado ? r.ahorro_cents : r.ahorro_previsto_cents);
+
+  const partes = [];
+  if (r.viajes_compartidos) partes.push(t('ahorro.viajes', { n: r.viajes_compartidos }));
+  if (r.km_compartidos >= 1) partes.push(`${r.km_compartidos.toFixed(0)} km`);
+  if (r.viajes_pendientes) partes.push(t('ahorro.pordelante', { n: r.viajes_pendientes }));
+
+  $('ahorro-pie').textContent = t(yaViajado ? 'ahorro.llevas' : 'ahorro.vas') +
+    (partes.join(' · ') || t('ahorro.empieza'));
+}
+
+/* ============ Zonas y mapa ============ */
+
+async function cargarBase() {
+  const [cfg, z] = await Promise.all([
+    api('GET', '/api/v1/config'),
+    api('GET', '/api/v1/zonas'),
+  ]);
+  estado.config = cfg;
+  estado.zonas = z.zonas;
+
+  const opciones = estado.zonas
+    .map((zz, i) => `<option value="${i}">${escapar(zz.nombre)}</option>`).join('');
+  for (const id of ['origen', 'destino', 'o-origen', 'o-destino', 'c-origen', 'c-destino']) {
+    $(id).innerHTML = opciones;
+  }
+  $('o-vehiculo').innerHTML = cfg.vehiculos
+    .map((v) => `<option value="${v.id}">${escapar(v.nombre)} — ${escapar(t('ofrecer.plazas', { n: v.plazas }))}</option>`).join('');
+
+  // Por clave, no por nombre: renombrar un sitio no puede romper esto.
+  const centro = estado.zonas.findIndex((zz) => zz.clave === 'downtown');
+  const aero = estado.zonas.findIndex((zz) => zz.clave === 'airport');
   if (centro >= 0 && aero >= 0) {
-    $('origen').value = centro; $('o-origen').value = centro;
-    $('destino').value = aero;  $('o-destino').value = aero;
+    for (const id of ['origen', 'o-origen', 'c-origen']) $(id).value = centro;
+    for (const id of ['destino', 'o-destino', 'c-destino']) $(id).value = aero;
   }
 }
 
-/* Proyección equirectangular sobre el área de servicio. A esta escala el error
-   es irrelevante y mantiene reconocibles las distancias relativas.
-
-   El lienzo se ajusta a la forma real de los datos en vez de a una caja fija:
-   Austin es más alto que ancho, y forzarlo a 1000x700 dejaba medio mapa vacío. */
-const MARGEN = 70;
+const MARGEN = 76;
 
 function encuadre() {
   const lats = estado.zonas.map((z) => z.lat);
@@ -211,29 +360,26 @@ function encuadre() {
 
   const anchoGeo = Math.max((maxLng - minLng) * cosLat, 1e-9);
   const altoGeo = Math.max(maxLat - minLat, 1e-9);
-  // El lado mayor manda, para que el mapa llene el lienzo en cualquier caso.
-  const escala = 760 / Math.max(anchoGeo, altoGeo);
+  const escala = 740 / Math.max(anchoGeo, altoGeo);
 
-  return {
-    minLat, maxLat, minLng, cosLat, escala,
-    ancho: anchoGeo * escala + 2 * MARGEN,
-    alto: altoGeo * escala + 2 * MARGEN,
-  };
+  const dibujo = anchoGeo * escala + 2 * MARGEN;
+  // Con la portada delante, el texto tapa la mitad izquierda: se ensancha el
+  // lienzo por la izquierda para que el mapa caiga en la mitad que se ve.
+  const conPortada = !estado.usuario && window.innerWidth > 880;
+  const hueco = conPortada ? dibujo * 1.05 : 0;
+
+  return { maxLat, minLng, cosLat, escala, hueco,
+    ancho: dibujo + hueco, alto: altoGeo * escala + 2 * MARGEN };
 }
 
 function proyectar(lat, lng, e) {
   return {
-    x: MARGEN + (lng - e.minLng) * e.cosLat * e.escala,
-    y: MARGEN + (e.maxLat - lat) * e.escala, // la latitud crece hacia arriba
+    x: e.hueco + MARGEN + (lng - e.minLng) * e.cosLat * e.escala,
+    y: MARGEN + (e.maxLat - lat) * e.escala,
   };
 }
 
-/* nombreCorto evita que las etiquetas se pisen unas a otras. */
-function nombreCorto(nombre) {
-  return nombre.split(/ [(\/]/)[0].trim();
-}
-
-/* ---------- Mapa ---------- */
+function nombreCorto(n) { return n.split(/ [(\/]/)[0].trim(); }
 
 function dibujarMapa() {
   const svg = $('mapa');
@@ -241,38 +387,39 @@ function dibujarMapa() {
 
   const e = encuadre();
   svg.setAttribute('viewBox', `0 0 ${e.ancho.toFixed(0)} ${e.alto.toFixed(0)}`);
-  const capas = [];
+  const capas = [malla(e)];
 
-  // Trayectos ofrecidos que ha devuelto la búsqueda.
   estado.resultados.forEach((m, i) => {
-    const ruta = m.trip.route.map((p) => proyectar(p.lat, p.lng, e));
-    const activo = estado.seleccionado === i;
-    capas.push(`<polyline class="trazo-oferta${activo ? ' activo' : ''}"
-      points="${ruta.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}"/>`);
+    const pts = m.trip.route.map((p) => proyectar(p.lat, p.lng, e));
+    capas.push(`<polyline class="trazo-oferta${estado.seleccionado === i ? ' activo' : ''}"
+      points="${pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}"/>`);
   });
 
-  // El trayecto que se está pidiendo, y el tramo que se compartiría.
   const pedido = trayectoPedido();
   if (pedido) {
     const a = proyectar(pedido.origen.lat, pedido.origen.lng, e);
     const b = proyectar(pedido.destino.lat, pedido.destino.lng, e);
+    const largo = Math.hypot(b.x - a.x, b.y - a.y);
     if (estado.seleccionado !== null && estado.resultados[estado.seleccionado]) {
       capas.push(`<line class="trazo-compartido" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`);
     }
-    capas.push(`<line class="trazo-mio" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`);
+    capas.push(`<line class="trazo-mio${ANIM ? ' dibuja' : ''}" style="--largo:${largo.toFixed(0)}"
+      x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"/>`);
   }
 
-  // Las zonas, encima de todo para que se puedan pulsar.
   estado.zonas.forEach((z, i) => {
     const p = proyectar(z.lat, z.lng, e);
     const elegida = pedido && (i === pedido.iOrigen || i === pedido.iDestino);
-    // Las etiquetas de la mitad inferior van debajo del punto: arriba se
-    // solapaban con las del vecino de encima.
+    // Las etiquetas de la mitad inferior van debajo: arriba se solapaban con
+    // las del vecino de encima.
     const debajo = p.y > e.alto / 2;
     capas.push(`
-      <g class="zona" data-zona="${i}">
+      <g class="zona" data-zona="${i}" role="button" tabindex="0"
+         aria-label="${escapar(z.nombre)}">
         <circle class="zona-punto${elegida ? ' elegida' : ''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${elegida ? 7 : 5}"/>
-        <text class="zona-texto" x="${p.x.toFixed(1)}" y="${(p.y + (debajo ? 22 : -13)).toFixed(1)}">${escapar(nombreCorto(z.nombre))}</text>
+        <circle class="zona-halo${elegida && ANIM ? ' viva' : ''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="7"/>
+        <text class="zona-texto${elegida ? ' elegida' : ''}" x="${p.x.toFixed(1)}"
+              y="${(p.y + (debajo ? 23 : -14)).toFixed(1)}">${escapar(nombreCorto(z.nombre))}</text>
       </g>`);
   });
 
@@ -280,30 +427,55 @@ function dibujarMapa() {
   svg.innerHTML = capas.join('');
 
   svg.querySelectorAll('.zona').forEach((g) => {
-    g.addEventListener('click', () => elegirZona(Number(g.dataset.zona)));
+    const elegir = () => elegirZona(Number(g.dataset.zona));
+    g.addEventListener('click', elegir);
+    g.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); elegir(); }
+    });
   });
 }
 
-/* escalaGrafica dibuja una barra de kilómetros: sin ella el mapa esquemático no
-   deja juzgar si un desvío son cinco minutos o media hora. */
+/* malla une cada zona con las dos más cercanas. Dibuja el área de servicio y
+   da cuerpo al mapa sin inventarse actividad: unas líneas pulsando entre
+   ciudades parecerían viajes en curso, y todavía no los hay. */
+function malla(e) {
+  const puntos = estado.zonas.map((z) => proyectar(z.lat, z.lng, e));
+  const hechas = new Set();
+  const lineas = [];
+
+  puntos.forEach((a, i) => {
+    const cercanas = puntos
+      .map((b, j) => ({ j, d: Math.hypot(b.x - a.x, b.y - a.y) }))
+      .filter((x) => x.j !== i)
+      .sort((x, y) => x.d - y.d)
+      .slice(0, 2);
+
+    for (const { j } of cercanas) {
+      const clave = i < j ? `${i}-${j}` : `${j}-${i}`;
+      if (hechas.has(clave)) continue;
+      hechas.add(clave);
+      const b = puntos[j];
+      lineas.push(`<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"/>`);
+    }
+  });
+  return `<g class="malla" aria-hidden="true">${lineas.join('')}</g>`;
+}
+
+/* Sin escala, un mapa esquemático no deja juzgar si un desvío son cinco
+   minutos o media hora. */
 function escalaGrafica(e) {
   const kmPorGrado = 111.32;
-  // Se elige un número redondo que ocupe alrededor de un quinto del ancho.
-  const objetivoKm = (e.ancho / e.escala) * kmPorGrado / 5;
+  const objetivo = (e.ancho / e.escala) * kmPorGrado / 5;
   const km = [1, 2, 5, 10, 20, 50].reduce(
-    (mejor, v) => (Math.abs(v - objetivoKm) < Math.abs(mejor - objetivoKm) ? v : mejor), 1);
-
+    (mejor, v) => (Math.abs(v - objetivo) < Math.abs(mejor - objetivo) ? v : mejor), 1);
   const largo = (km / kmPorGrado) * e.escala;
-  const x = MARGEN, y = e.alto - 26;
-  return `
-    <g aria-hidden="true">
-      <line x1="${x}" y1="${y}" x2="${(x + largo).toFixed(1)}" y2="${y}"
-            stroke="#5d6b78" stroke-width="1.5"/>
-      <line x1="${x}" y1="${y - 4}" x2="${x}" y2="${y + 4}" stroke="#5d6b78" stroke-width="1.5"/>
-      <line x1="${(x + largo).toFixed(1)}" y1="${y - 4}" x2="${(x + largo).toFixed(1)}" y2="${y + 4}"
-            stroke="#5d6b78" stroke-width="1.5"/>
-      <text x="${(x + largo / 2).toFixed(1)}" y="${y - 9}" class="zona-texto">${km} km</text>
-    </g>`;
+  const x = e.hueco + MARGEN, y = e.alto - 24;
+  return `<g aria-hidden="true" opacity=".7">
+    <line x1="${x}" y1="${y}" x2="${(x + largo).toFixed(1)}" y2="${y}" stroke="#5f6d7b" stroke-width="1.5"/>
+    <line x1="${x}" y1="${y - 4}" x2="${x}" y2="${y + 4}" stroke="#5f6d7b" stroke-width="1.5"/>
+    <line x1="${(x + largo).toFixed(1)}" y1="${y - 4}" x2="${(x + largo).toFixed(1)}" y2="${y + 4}" stroke="#5f6d7b" stroke-width="1.5"/>
+    <text x="${(x + largo / 2).toFixed(1)}" y="${y - 9}" class="zona-texto">${km} km</text>
+  </g>`;
 }
 
 /* Pulsar una zona rellena primero el origen y luego el destino: es el gesto que
@@ -318,161 +490,194 @@ function elegirZona(i) {
 }
 
 function trayectoPedido() {
-  if (!estado.zonas.length) return null;
+  if (!estado.zonas.length || !estado.usuario) return null;
   const pre = estado.modo === 'ofrecer' ? 'o-' : '';
-  const iO = Number($(pre + 'origen').value);
-  const iD = Number($(pre + 'destino').value);
+  const iO = Number($(pre + 'origen').value), iD = Number($(pre + 'destino').value);
   if (Number.isNaN(iO) || Number.isNaN(iD) || iO === iD) return null;
   return { iOrigen: iO, iDestino: iD, origen: estado.zonas[iO], destino: estado.zonas[iD] };
 }
 
-/* ---------- Buscar ---------- */
+/* ============ Calculadora de la portada ============ */
+
+function calcular() {
+  const a = estado.zonas[Number($('c-origen').value)];
+  const b = estado.zonas[Number($('c-destino').value)];
+  if (!a || !b || a === b) {
+    $('c-solo').textContent = $('c-junto').textContent = '—';
+    $('c-pie').textContent = t('portada.elige');
+    return;
+  }
+  const km = distanciaKm(a, b);
+  const solo = costeEstimado(km);
+  // Compartiendo el camino entero con otra persona, el coste se parte a la
+  // mitad: es exactamente lo que hace el reparto por tramos.
+  const junto = Math.round(solo / 2);
+
+  $('c-solo').textContent = euros(solo);
+  $('c-junto').textContent = euros(junto);
+  $('c-pie').innerHTML = t('portada.ahorro', {
+    km: km.toFixed(1), ahorro: `<b>${escapar(euros(solo - junto))}</b>`,
+  });
+}
+
+/* ============ Buscar ============ */
 
 async function buscar() {
-  const t = trayectoPedido();
-  if (!t) { avisar('Elige un origen y un destino distintos.', 'error'); return; }
+  const tr = trayectoPedido();
+  if (!tr) { toast(t('aviso.lugares.t'), parrafo(t('aviso.lugares.d')), 'error'); return; }
 
   const desde = new Date($('cuando').value || Date.now());
   const margen = Number($('margen').value) * 60000;
 
+  estado.buscando = true;
   $('btn-buscar').disabled = true;
-  $('resultados').innerHTML = '<p class="cargando">Buscando…</p>';
   $('resultados-caja').classList.remove('oculto');
+  $('resultados').innerHTML = '<div class="hueso hueso-viaje"></div><div class="hueso hueso-viaje"></div>';
 
   try {
     const r = await api('POST', '/api/v1/search', {
-      pickup: { lat: t.origen.lat, lng: t.origen.lng },
-      dropoff: { lat: t.destino.lat, lng: t.destino.lng },
+      pickup: { lat: tr.origen.lat, lng: tr.origen.lng },
+      dropoff: { lat: tr.destino.lat, lng: tr.destino.lng },
       earliest_departure: new Date(desde.getTime() - margen).toISOString(),
       latest_departure: new Date(desde.getTime() + margen).toISOString(),
       seats: 1,
     });
     estado.resultados = r.matches || [];
     estado.seleccionado = estado.resultados.length ? 0 : null;
-    limpiarAvisos();
     pintarResultados();
     dibujarMapa();
   } catch (e) {
     explicarError(e);
     $('resultados').innerHTML = '';
   } finally {
+    estado.buscando = false;
     $('btn-buscar').disabled = false;
   }
 }
 
 function pintarResultados() {
-  $('resultados-titulo').textContent =
-    estado.resultados.length ? `${estado.resultados.length} viaje(s) compatible(s)` : 'Sin resultados';
+  const n = estado.resultados.length;
+  $('resultados-titulo').textContent = n
+    ? (n === 1 ? t('res.titulo.uno') : t('res.titulo.varios', { n }))
+    : t('res.sin');
 
-  if (!estado.resultados.length) {
-    $('resultados').innerHTML =
-      `<p class="tenue">Nadie va por ahí en esa franja todavía.
-       Prueba a ampliar el margen horario, o publica tú el trayecto y espera a que alguien se sume.</p>`;
+  if (!n) {
+    $('resultados').innerHTML = `
+      <div class="vacio">
+        <p>${escapar(t('res.vacio.titulo'))}</p>
+        <button class="btn-2 btn-fino" id="vacio-ofrecer">${escapar(t('res.vacio.boton'))}</button>
+      </div>`;
+    $('vacio-ofrecer')?.addEventListener('click', () => cambiarModo('ofrecer'));
     return;
   }
 
   $('resultados').innerHTML = estado.resultados.map((m, i) => {
-    const t = m.trip;
-    const salida = new Date(t.departure_time);
+    const v = m.trip;
+    const soloYo = costeEstimado(m.shared_km);
+    const ahorro = soloYo - m.estimated_price_cents;
+    const cobertura = Math.min(100, Math.round(m.coverage * 100));
+
     return `
-      <div class="viaje ${i === estado.seleccionado ? 'activo' : ''}" data-i="${i}">
-        <div class="viaje-cabecera">
-          <span class="ruta">${escapar(t.origin.name)} → ${escapar(t.destination.name)}</span>
-          <span class="precio">${euros(m.estimated_price_cents)}</span>
+      <article class="viaje ${i === estado.seleccionado ? 'activo' : ''}" data-i="${i}"
+               role="button" tabindex="0" style="animation-delay:${i * 40}ms">
+        <div class="viaje-cab">
+          <div class="ruta">${escapar(v.origin.name)} → ${escapar(v.destination.name)}
+            <small>${escapar(fecha(new Date(v.departure_time)))}</small>
+          </div>
+          <div class="precio">
+            <b>${euros(m.estimated_price_cents)}</b>
+            ${ahorro > 0 ? `<s>${euros(soloYo)}</s>` : ''}
+          </div>
         </div>
-        <div class="viaje-datos">
-          <span><b>${salida.toLocaleString('es', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</b></span>
-          <span>compartís <b>${m.shared_km.toFixed(1)} km</b></span>
-          <span>a pie <b>${(m.pickup_walk_km * 1000).toFixed(0)} m</b></span>
-          <span>${t.seats_available} plaza(s)</span>
+        <div class="solape"><i style="width:${cobertura}%"></i></div>
+        <div class="datos">
+          <span>${escapar(t('res.compartis', { km: m.shared_km.toFixed(1) }))}</span>
+          <span>${escapar(t('res.apie', { m: (m.pickup_walk_km * 1000).toFixed(0) }))}</span>
+          <span>${escapar(t('res.plazas', { n: v.seats_available }))}</span>
         </div>
-        <div class="fila" style="margin-top:10px">
-          <span class="nivel nivel-${claseNivel(t.nivel_exigido)}">exige ${escapar(t.nivel_exigido)}</span>
-          <button class="btn-secundario btn-fino" data-reservar="${i}">Pedir plaza</button>
+        <div class="viaje-pie">
+          <span class="nivel nivel-${claseNivel(v.nivel_exigido)}">${escapar(t('res.exige', { nivel: t('nivel.' + v.nivel_exigido) }))}</span>
+          <button class="btn-1 btn-fino" data-reservar="${i}">${escapar(t('res.pedir'))}</button>
         </div>
-      </div>`;
+      </article>`;
   }).join('');
 
   $('resultados').querySelectorAll('.viaje').forEach((el) => {
-    el.addEventListener('click', (ev) => {
-      if (ev.target.dataset.reservar !== undefined) return;
-      estado.seleccionado = Number(el.dataset.i);
-      pintarResultados();
-      dibujarMapa();
+    const sel = () => { estado.seleccionado = Number(el.dataset.i); pintarResultados(); dibujarMapa(); };
+    el.addEventListener('click', (ev) => { if (ev.target.dataset.reservar === undefined) sel(); });
+    el.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); sel(); }
     });
   });
-  $('resultados').querySelectorAll('[data-reservar]').forEach((b) => {
-    b.addEventListener('click', () => reservar(Number(b.dataset.reservar)));
-  });
+  $('resultados').querySelectorAll('[data-reservar]').forEach((b) =>
+    b.addEventListener('click', () => reservar(Number(b.dataset.reservar), b)));
 }
 
-async function reservar(i) {
+async function reservar(i, boton) {
   const m = estado.resultados[i];
-  const t = trayectoPedido();
+  const tr = trayectoPedido();
+  boton.disabled = true;
+  boton.textContent = t('res.pidiendo');
   try {
     await api('POST', `/api/v1/trips/${m.trip.id}/bookings`, {
-      pickup: { name: t.origen.nombre, point: { lat: t.origen.lat, lng: t.origen.lng } },
-      dropoff: { name: t.destino.nombre, point: { lat: t.destino.lat, lng: t.destino.lng } },
+      pickup: { name: tr.origen.nombre, point: { lat: tr.origen.lat, lng: tr.origen.lng } },
+      dropoff: { name: tr.destino.nombre, point: { lat: tr.destino.lat, lng: tr.destino.lng } },
       seats: 1,
     });
-    // Primero se refresca la búsqueda y después se avisa: al revés, buscar()
-    // limpiaba el mensaje antes de que a nadie le diera tiempo a leerlo.
-    await buscar();
-    avisar('Plaza pedida. Quien organiza tiene que aceptarte antes de que sea firme.', 'bien');
+    await Promise.all([buscar(), refrescar()]);
+    pintar();
+    toast(t('aviso.pedida.t'), parrafo(t('aviso.pedida.d')), 'bien');
   } catch (e) {
     explicarError(e);
+    boton.disabled = false;
+    boton.textContent = t('res.pedir');
   }
 }
 
-/* ---------- Publicar ---------- */
+/* ============ Publicar ============ */
 
 function actualizarSuelo() {
-  const esBiplaza = $('o-vehiculo').value === 'cybercab';
-  $('o-suelo').innerHTML = esBiplaza
-    ? `<strong>Cybercab: viajaréis solos.</strong> Sin conductor y sin nadie más
-       delante, así que ambas partes necesitáis la identidad verificada. No se
-       puede rebajar.`
-    : `Con 4 plazas hay más gente a bordo. El mínimo es correo y teléfono
-       verificados, pero puedes exigir más.`;
+  const v = estado.config?.vehiculos.find((x) => x.id === $('o-vehiculo').value);
+  if (!v) return;
+  $('o-suelo').innerHTML = `<strong>${escapar(v.nombre)}:</strong> ${escapar(textoSuelo(v.plazas))}`;
 }
 
 async function publicar() {
-  const t = trayectoPedido();
-  if (!t) { avisar('Elige un origen y un destino distintos.', 'error'); return; }
-  if (!$('o-cuando').value) { avisar('Pon la hora de salida.', 'error'); return; }
+  const tr = trayectoPedido();
+  if (!tr) { toast(t('aviso.lugares.t'), parrafo(t('aviso.lugares.d')), 'error'); return; }
+  if (!$('o-cuando').value) { toast(t('aviso.hora.t'), '', 'error'); $('o-cuando').focus(); return; }
 
-  $('btn-publicar').disabled = true;
+  const btn = $('btn-publicar');
+  btn.disabled = true; btn.textContent = t('ofrecer.publicando');
   try {
     await api('POST', '/api/v1/trips', {
-      origin: { name: t.origen.nombre, point: { lat: t.origen.lat, lng: t.origen.lng } },
-      destination: { name: t.destino.nombre, point: { lat: t.destino.lat, lng: t.destino.lng } },
+      origin: { name: tr.origen.nombre, point: { lat: tr.origen.lat, lng: tr.origen.lng } },
+      destination: { name: tr.destino.nombre, point: { lat: tr.destino.lat, lng: tr.destino.lng } },
       departure_time: new Date($('o-cuando').value).toISOString(),
       vehicle: $('o-vehiculo').value,
       min_trust_level: $('o-nivel').value,
     });
-    avisar('Trayecto publicado. Te avisaremos cuando alguien pida plaza.', 'bien');
-    await cargarMisTrayectos();
+    await refrescar();
     pintar();
+    toast(t('aviso.publicado.t'), parrafo(t('aviso.publicado.d')), 'bien');
   } catch (e) {
     explicarError(e);
   } finally {
-    $('btn-publicar').disabled = false;
+    btn.disabled = false; btn.textContent = t('ofrecer.boton');
   }
 }
 
-/* ---------- Mis trayectos ---------- */
+/* ============ Mis trayectos ============ */
 
 async function cargarMisTrayectos() {
-  if (!estado.usuario) return;
   const r = await api('GET', '/api/v1/trips');
   estado.mios = (r.trips || []).filter((t) => t.host_id === estado.usuario.id);
-
-  // Las peticiones de plaza de cada trayecto propio.
   for (const t of estado.mios) {
     try {
       const b = await api('GET', `/api/v1/trips/${t.id}/bookings`);
       t.peticiones = (b.bookings || []).filter((x) => x.status === 'pending');
-    } catch { t.peticiones = []; }
+      t.confirmadas = (b.bookings || []).filter((x) => x.status === 'confirmed');
+    } catch { t.peticiones = []; t.confirmadas = []; }
   }
 }
 
@@ -480,141 +685,134 @@ function pintarMisTrayectos() {
   if (!estado.mios.length) { $('mios-caja').classList.add('oculto'); return; }
   $('mios-caja').classList.remove('oculto');
 
-  $('mios').innerHTML = estado.mios.map((t) => {
-    const salida = new Date(t.departure_time);
-    const peticiones = (t.peticiones || []).map((p) => `
-      <div class="fila" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--borde)">
-        <span class="tenue">Alguien pide ${p.seats} plaza(s) · ${euros(p.price_cents)}</span>
-        <span>
-          <button class="btn-secundario btn-fino" data-aceptar="${p.id}">Aceptar</button>
-          <button class="btn-secundario btn-fino" data-rechazar="${p.id}">No</button>
+  $('mios').innerHTML = estado.mios.map((v) => {
+    const peticiones = (v.peticiones || []).map((p) => `
+      <div class="fila" style="margin-top:11px;padding-top:11px;border-top:1px solid var(--borde)">
+        <span class="tenue">${escapar(t('mios.piden', { n: p.seats, precio: euros(p.price_cents) }))}</span>
+        <span style="display:flex;gap:6px">
+          <button class="btn-1 btn-fino" data-aceptar="${p.id}">${escapar(t('mios.aceptar'))}</button>
+          <button class="btn-2 btn-fino" data-rechazar="${p.id}">${escapar(t('mios.no'))}</button>
         </span>
       </div>`).join('');
 
+    const conf = (v.confirmadas || []).length;
     return `
-      <div class="viaje">
-        <div class="viaje-cabecera">
-          <span class="ruta">${escapar(t.origin.name)} → ${escapar(t.destination.name)}</span>
-          <span class="tenue mono">${escapar(t.status)}</span>
+      <article class="viaje" style="cursor:default">
+        <div class="viaje-cab">
+          <div class="ruta">${escapar(v.origin.name)} → ${escapar(v.destination.name)}
+            <small>${escapar(fecha(new Date(v.departure_time)))}</small>
+          </div>
+          <span class="nivel nivel-${claseNivel(v.nivel_exigido)}">${escapar(t('estado.' + v.status))}</span>
         </div>
-        <div class="viaje-datos">
-          <span><b>${salida.toLocaleString('es', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</b></span>
-          <span>${t.distance_km} km</span>
-          <span>${t.seats_available}/${t.seats_total} libres</span>
-          <span>${escapar(t.route_source === 'osrm' ? 'ruta real' : 'ruta estimada')}</span>
+        <div class="datos">
+          <span><b>${v.distance_km}</b> km</span>
+          <span>${escapar(t('mios.libres', { libres: v.seats_available, total: v.seats_total }))}</span>
+          ${conf ? `<span>${escapar(t('mios.confirmadas', { n: conf }))}</span>` : ''}
+          <span>${escapar(t(v.route_source === 'osrm' ? 'mios.rutareal' : 'mios.rutaest'))}</span>
         </div>
         ${peticiones}
-      </div>`;
+      </article>`;
   }).join('');
 
   $('mios').querySelectorAll('[data-aceptar]').forEach((b) =>
-    b.addEventListener('click', () => decidir(b.dataset.aceptar, true)));
+    b.addEventListener('click', () => decidir(b.dataset.aceptar, true, b)));
   $('mios').querySelectorAll('[data-rechazar]').forEach((b) =>
-    b.addEventListener('click', () => decidir(b.dataset.rechazar, false)));
+    b.addEventListener('click', () => decidir(b.dataset.rechazar, false, b)));
 }
 
 /* Aceptar a alguien obliga a asumir la responsabilidad que imponen los términos
    del robotaxi. No se puede aceptar sin verlo. */
-async function decidir(id, aceptar) {
-  if (aceptar) {
-    const ok = confirm(
-      'Los términos del robotaxi te hacen responsable de la conducta de quien ' +
-      'dejes subir al vehículo, incluidos los daños que cause.\n\n' +
-      'Revisa su perfil de confianza antes de aceptar.\n\n¿Lo asumes?');
-    if (!ok) return;
-  }
+async function decidir(id, aceptar, boton) {
+  if (aceptar && !confirm(t('confirmar.responsabilidad'))) return;
+
+  boton.disabled = true;
   try {
     await api('POST', `/api/v1/bookings/${id}/decision`,
       { accept: aceptar, acepta_responsabilidad: aceptar });
-    avisar(aceptar ? 'Plaza confirmada.' : 'Petición rechazada.', 'bien');
-    await cargarMisTrayectos();
-    pintarMisTrayectos();
+    await refrescar();
+    pintar();
+    toast(t(aceptar ? 'aviso.confirmada.t' : 'aviso.rechazada.t'),
+      aceptar ? parrafo(t('aviso.confirmada.d')) : '', 'bien');
   } catch (e) {
     explicarError(e);
+    boton.disabled = false;
   }
 }
 
-/* ---------- Pintado general ---------- */
+/* ============ Pintado ============ */
 
 function claseNivel(n) {
   return ({ 'nuevo': 'nuevo', 'básico': 'basico', 'verificado': 'verificado', 'veterano': 'veterano' })[n] || 'nuevo';
 }
 
-function euros(cents) { return (cents / 100).toFixed(2) + ' $'; }
-
 function pintar() {
   const dentro = !!estado.usuario;
+  document.querySelector('main').classList.toggle('sin-sesion', !dentro);
 
-  $('acceso').classList.toggle('oculto', dentro);
   $('confianza').classList.toggle('oculto', !dentro);
   $('modo').classList.toggle('oculto', !dentro);
   $('buscar').classList.toggle('oculto', !dentro || estado.modo !== 'buscar');
   $('ofrecer').classList.toggle('oculto', !dentro || estado.modo !== 'ofrecer');
 
-  $('sesion').innerHTML = dentro
-    ? `<span class="nivel nivel-${claseNivel(estado.perfil?.nivel)}">${escapar(estado.perfil?.nivel || 'nuevo')}</span>
-       <span class="tenue">${escapar(estado.usuario.name)}</span>
-       <button class="enlace" id="btn-salir">Salir</button>`
-    : '';
-  if (dentro) $('btn-salir').addEventListener('click', salir);
-
-  if (dentro) pintarConfianza();
-  pintarMisTrayectos();
-}
-
-function pintarConfianza() {
   const nivel = estado.perfil?.nivel || 'nuevo';
-  $('mi-nivel').textContent = nivel;
-  $('mi-nivel').className = 'nivel nivel-' + claseNivel(nivel);
+  $('sesion').innerHTML = dentro
+    ? `<span class="nivel nivel-${claseNivel(nivel)}">${escapar(t('nivel.' + nivel))}</span>
+       <span class="tenue">${escapar(estado.usuario.name)}</span>
+       <button class="enlace" id="btn-salir">${escapar(t('cab.salir'))}</button>`
+    : `<button class="btn-2 btn-fino" id="btn-entrar-cab">${escapar(t('cab.entrar'))}</button>`;
 
-  const verificado = nivel === 'verificado' || nivel === 'veterano';
-  $('confianza-texto').innerHTML = verificado
-    ? 'Identidad acreditada. Puedes compartir cualquier vehículo, incluido el Cybercab biplaza.'
-    : 'Aquí no hay conductor que haga de testigo. Por eso hace falta acreditar ' +
-      'quién eres antes de compartir coche con desconocidos — y por eso puedes ' +
-      'fiarte de quien se suba contigo.';
-
-  $('lista-comprobaciones').innerHTML = COMPROBACIONES.map((c) => {
-    const hecha = comprobacionHecha(c.id);
-    return `<li class="${hecha ? 'hecha' : ''}">
-      <span>${escapar(c.nombre)}</span>
-      ${hecha
-        ? '<span class="marca-ok">✓</span>'
-        : `<button class="btn-secundario btn-fino" data-verificar="${c.id}">Verificar</button>`}
-    </li>`;
-  }).join('');
-
-  $('lista-comprobaciones').querySelectorAll('[data-verificar]').forEach((b) =>
-    b.addEventListener('click', () => verificar(b.dataset.verificar)));
+  if (dentro) {
+    $('btn-salir').addEventListener('click', salir);
+    pintarConfianza();
+    pintarAhorro();
+    pintarMisTrayectos();
+  } else {
+    $('btn-entrar-cab').addEventListener('click', () => mostrarAcceso(false));
+  }
 }
 
-/* ---------- Arranque ---------- */
+function cambiarModo(modo) {
+  estado.modo = modo;
+  $('tab-buscar').setAttribute('aria-selected', String(modo === 'buscar'));
+  $('tab-ofrecer').setAttribute('aria-selected', String(modo === 'ofrecer'));
+  siguienteEsDestino = false;
+  pintar();
+  dibujarMapa();
+}
 
-function conectarEventos() {
-  let esAlta = false;
-  const cambiarAcceso = (alta) => {
-    esAlta = alta;
-    $('tab-entrar').setAttribute('aria-selected', String(!alta));
-    $('tab-alta').setAttribute('aria-selected', String(alta));
-    $('campo-nombre').hidden = !alta;
-    $('btn-acceso').textContent = alta ? 'Crear cuenta' : 'Entrar';
-    $('clave').autocomplete = alta ? 'new-password' : 'current-password';
-  };
-  $('tab-entrar').addEventListener('click', () => cambiarAcceso(false));
-  $('tab-alta').addEventListener('click', () => cambiarAcceso(true));
-  $('form-acceso').addEventListener('submit', (e) => { e.preventDefault(); entrar(esAlta); });
+/* ============ Arranque ============ */
 
-  const cambiarModo = (modo) => {
-    estado.modo = modo;
-    $('tab-buscar').setAttribute('aria-selected', String(modo === 'buscar'));
-    $('tab-ofrecer').setAttribute('aria-selected', String(modo === 'ofrecer'));
-    siguienteEsDestino = false;
-    pintar();
-    dibujarMapa();
-  };
+function horaPorDefecto() {
+  const d = new Date(Date.now() + 2 * 3600 * 1000);
+  d.setMinutes(0, 0, 0);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+/* repintar vuelve a componer todo lo que ya está en pantalla. Cambiar de
+   idioma no debe obligar a recargar ni perder lo que había. */
+function repintar() {
+  aplicarTextos();
+  document.querySelectorAll('[data-idioma]').forEach((b) =>
+    b.setAttribute('aria-current', String(b.dataset.idioma === idioma())));
+  actualizarSuelo();
+  calcular();
+  if (!$('acceso').classList.contains('oculto')) mostrarAcceso(esAlta);
+  pintar();
+  if (estado.resultados.length) pintarResultados();
+}
+
+function conectar() {
+  document.querySelectorAll('[data-idioma]').forEach((b) =>
+    b.addEventListener('click', () => { cambiarIdioma(b.dataset.idioma); repintar(); }));
+
+  $('cta-alta').addEventListener('click', () => mostrarAcceso(true));
+  $('cta-entrar').addEventListener('click', () => mostrarAcceso(false));
+  $('volver').addEventListener('click', volverAPortada);
+  $('cambiar-modo').addEventListener('click', () => mostrarAcceso(!esAlta));
+  $('form-acceso').addEventListener('submit', enviarAcceso);
+
   $('tab-buscar').addEventListener('click', () => cambiarModo('buscar'));
   $('tab-ofrecer').addEventListener('click', () => cambiarModo('ofrecer'));
-
   $('btn-buscar').addEventListener('click', buscar);
   $('btn-publicar').addEventListener('click', publicar);
   $('o-vehiculo').addEventListener('change', actualizarSuelo);
@@ -622,28 +820,53 @@ function conectarEventos() {
   for (const id of ['origen', 'destino', 'o-origen', 'o-destino']) {
     $(id).addEventListener('change', dibujarMapa);
   }
-}
+  for (const id of ['c-origen', 'c-destino']) {
+    $(id).addEventListener('change', calcular);
+  }
 
-function horaPorDefecto() {
-  const d = new Date(Date.now() + 2 * 3600 * 1000);
-  d.setMinutes(0, 0, 0);
-  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 16);
+  const irAPendientes = () => $('mios-caja').scrollIntoView({ behavior: ANIM ? 'smooth' : 'auto', block: 'start' });
+  $('pendientes').addEventListener('click', irAPendientes);
+  $('pendientes').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); irAPendientes(); }
+  });
+
+  let temporizador;
+  window.addEventListener('resize', () => {
+    clearTimeout(temporizador);
+    temporizador = setTimeout(dibujarMapa, 150);
+  });
+
+  // Escape cierra el acceso y vuelve a la portada.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('acceso').classList.contains('oculto')) volverAPortada();
+  });
 }
 
 async function arrancar() {
-  conectarEventos();
+  aplicarTextos();
+  conectar();
   $('cuando').value = horaPorDefecto();
   $('o-cuando').value = horaPorDefecto();
 
   try {
-    await cargarZonas();
+    await cargarBase();
   } catch {
-    avisar('No se pudo cargar el área de servicio. Recarga la página.', 'error');
+    toast(t('aviso.nocarga.t'), parrafo(t('aviso.nocarga.d')), 'error');
     return;
   }
-  actualizarSuelo();
-  await recuperarSesion();
+  repintar();
+
+  if (estado.token) {
+    try {
+      estado.usuario = await api('GET', '/api/v1/me');
+      await entrarEnLaApp();
+      return;
+    } catch {
+      // Token caducado: se empieza de cero sin molestar.
+      estado.token = '';
+      localStorage.removeItem('token');
+    }
+  }
   pintar();
   dibujarMapa();
 }

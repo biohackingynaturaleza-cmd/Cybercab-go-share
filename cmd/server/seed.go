@@ -11,9 +11,9 @@ import (
 
 // Puntos reales de Austin para probar el caso central: centro → aeropuerto.
 var (
-	downtownAustin = domain.Place{Name: "Congress Ave & 6th St, Austin", Point: geo.Point{Lat: 30.2685, Lng: -97.7425}}
-	riverside      = domain.Place{Name: "E Riverside Dr, Austin", Point: geo.Point{Lat: 30.2380, Lng: -97.7180}}
-	ausAirport     = domain.Place{Name: "Austin-Bergstrom Intl (AUS)", Point: geo.Point{Lat: 30.1975, Lng: -97.6664}}
+	downtownAustin = domain.Place{Name: "Downtown (Congress & 6th)", Point: geo.Point{Lat: 30.2685, Lng: -97.7425}}
+	riverside      = domain.Place{Name: "East Riverside", Point: geo.Point{Lat: 30.2380, Lng: -97.7180}}
+	ausAirport     = domain.Place{Name: "Austin-Bergstrom (AUS)", Point: geo.Point{Lat: 30.1975, Lng: -97.6664}}
 )
 
 // demoPassword es la contraseña de las cuentas de ejemplo. Solo se usa con

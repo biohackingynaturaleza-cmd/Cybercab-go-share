@@ -155,9 +155,33 @@ make lint      # gofmt + go vet
 make arriba    # app + Postgres con PostGIS, en contenedores
 ```
 
-Un solo binario estático de 11 MB con la interfaz dentro: no hay despliegue de
-frontend aparte que pueda quedar desincronizado con la API. Ver
+Un solo binario estático con la interfaz dentro: no hay despliegue de frontend
+aparte que pueda quedar desincronizado con la API. Ver
 [`docs/despliegue.md`](docs/despliegue.md).
+
+## La interfaz
+
+En **inglés y español**. El idioma por defecto es el inglés porque el servicio
+opera en Austin; si el navegador está en español arranca en español, y la
+elección manual manda sobre ambas cosas. Todo el texto que ve una persona vive
+en `internal/api/web/i18n.js`: el servidor devuelve códigos estables y la
+interfaz decide cómo se dicen, así que añadir un idioma no obliga a tocar la API.
+
+Tres decisiones que la explican:
+
+- **El ahorro se enseña antes de pedir nada.** La portada lleva una calculadora
+  con la tarifa real: eliges dos sitios y ves lo que cuesta solo y compartiendo.
+  Es el argumento entero del producto en una cifra, sin registrarse.
+- **La confianza va delante.** El nivel está en la cabecera y lo que falta para
+  subirlo es lo primero que aparece al entrar. Cuando algo se deniega, se dice
+  qué falta exactamente: negar sin explicar solo hace que la gente se vaya.
+- **El mapa es esquemático, no de calles.** Lo que hay que ver es si dos
+  trayectos se solapan y cuánto; de navegar ya se encarga el robotaxi. Además
+  queda autocontenido: sin CDN, sin terceros y sin nada que pueda rastrear a
+  quien entra.
+
+Y lo que hace volver: el **ahorro acumulado** en cabecera del panel, y —mientras
+no se haya viajado todavía— el ahorro *previsto* de los viajes ya reservados.
 
 ## API
 

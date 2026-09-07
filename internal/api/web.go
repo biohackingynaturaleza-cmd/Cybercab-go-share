@@ -5,7 +5,10 @@ import (
 	"io/fs"
 	"net/http"
 
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/service"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/simulacion"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/trust"
 )
 
 //go:embed all:web
@@ -68,13 +71,47 @@ func cabecerasDeSeguridad(w http.ResponseWriter) {
 // servicio.
 func (s *Server) zonas(w http.ResponseWriter, _ *http.Request) {
 	type zona struct {
+		Clave  string  `json:"clave"`
 		Nombre string  `json:"nombre"`
 		Lat    float64 `json:"lat"`
 		Lng    float64 `json:"lng"`
 	}
 	out := make([]zona, 0, len(simulacion.ZonasAustin))
 	for _, z := range simulacion.ZonasAustin {
-		out = append(out, zona{Nombre: z.Nombre, Lat: z.Punto.Lat, Lng: z.Punto.Lng})
+		out = append(out, zona{Clave: z.Clave, Nombre: z.Nombre, Lat: z.Punto.Lat, Lng: z.Punto.Lng})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"zonas": out})
+}
+
+// config son los parámetros que la interfaz necesita para calcular y explicar
+// precios sin duplicar la tarifa en el navegador.
+func (s *Server) config(w http.ResponseWriter, _ *http.Request) {
+	t := s.svc.Tariff()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tarifa": map[string]int64{
+			"base_cents":       t.BaseCents,
+			"por_km_cents":     t.PerKmCents,
+			"por_minuto_cents": t.PerMinuteCents,
+			"minimo_cents":     t.MinimumCents,
+		},
+		"velocidad_media_kmh": service.DefaultSpeedKmh,
+		"vehiculos": []map[string]any{
+			{"id": "model_y", "nombre": "Model Y", "plazas": domain.VehicleModelY.Seats(),
+				"suelo":  trust.SueloPorVehiculo(domain.VehicleModelY.Seats()).Label(),
+				"motivo": trust.ExplicarSuelo(domain.VehicleModelY.Seats())},
+			{"id": "cybercab", "nombre": "Cybercab", "plazas": domain.VehicleCybercab.Seats(),
+				"suelo":  trust.SueloPorVehiculo(domain.VehicleCybercab.Seats()).Label(),
+				"motivo": trust.ExplicarSuelo(domain.VehicleCybercab.Seats())},
+		},
+	})
+}
+
+// resumen devuelve lo que esa persona lleva ahorrado y lo que tiene pendiente.
+func (s *Server) resumen(w http.ResponseWriter, r *http.Request) {
+	res, err := s.svc.ResumenDe(actor(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }

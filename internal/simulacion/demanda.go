@@ -21,6 +21,10 @@ import (
 
 // Zona es un punto de atracción de viajes dentro del área de servicio.
 type Zona struct {
+	// Clave identifica la zona de forma estable. El nombre es para leer y puede
+	// cambiar; la clave se puede usar en código sin que renombrar un sitio
+	// rompa nada.
+	Clave  string
 	Nombre string
 	Punto  geo.Point
 	// PesoOrigen y PesoDestino son la probabilidad relativa de que un viaje
@@ -32,21 +36,24 @@ type Zona struct {
 
 // ZonasAustin son puntos reales dentro del área donde opera el robotaxi.
 //
+// Los nombres van en inglés y sin traducir porque son topónimos: quien busca
+// "Downtown" o "The Domain" en Austin no busca otra cosa en español.
+//
 // Los pesos son una estimación razonada de los patrones de una ciudad como
 // Austin, no datos medidos. La conclusión de la simulación es robusta frente a
 // ellos —lo que se compara es el mismo escenario con y sin compartir—, pero los
 // valores absolutos no deben tomarse como una predicción.
 var ZonasAustin = []Zona{
-	{"Centro (Congress & 6th)", geo.Point{Lat: 30.2685, Lng: -97.7425}, 22, 20},
-	{"Aeropuerto AUS", geo.Point{Lat: 30.1975, Lng: -97.6664}, 8, 18},
-	{"The Domain", geo.Point{Lat: 30.4013, Lng: -97.7256}, 14, 13},
-	{"East Riverside", geo.Point{Lat: 30.2380, Lng: -97.7180}, 13, 8},
-	{"Campus UT / West Campus", geo.Point{Lat: 30.2861, Lng: -97.7394}, 12, 10},
-	{"Mueller", geo.Point{Lat: 30.2988, Lng: -97.7050}, 8, 7},
-	{"South Congress", geo.Point{Lat: 30.2489, Lng: -97.7501}, 9, 10},
-	{"Pflugerville", geo.Point{Lat: 30.4394, Lng: -97.6200}, 7, 5},
-	{"Gigafactory / Del Valle", geo.Point{Lat: 30.2206, Lng: -97.6183}, 5, 7},
-	{"Zilker / Barton Springs", geo.Point{Lat: 30.2669, Lng: -97.7729}, 6, 8},
+	{"downtown", "Downtown (Congress & 6th)", geo.Point{Lat: 30.2685, Lng: -97.7425}, 22, 20},
+	{"airport", "Austin-Bergstrom (AUS)", geo.Point{Lat: 30.1975, Lng: -97.6664}, 8, 18},
+	{"domain", "The Domain", geo.Point{Lat: 30.4013, Lng: -97.7256}, 14, 13},
+	{"riverside", "East Riverside", geo.Point{Lat: 30.2380, Lng: -97.7180}, 13, 8},
+	{"campus", "UT Campus / West Campus", geo.Point{Lat: 30.2861, Lng: -97.7394}, 12, 10},
+	{"mueller", "Mueller", geo.Point{Lat: 30.2988, Lng: -97.7050}, 8, 7},
+	{"soco", "South Congress", geo.Point{Lat: 30.2489, Lng: -97.7501}, 9, 10},
+	{"pflugerville", "Pflugerville", geo.Point{Lat: 30.4394, Lng: -97.6200}, 7, 5},
+	{"gigafactory", "Gigafactory / Del Valle", geo.Point{Lat: 30.2206, Lng: -97.6183}, 5, 7},
+	{"zilker", "Zilker / Barton Springs", geo.Point{Lat: 30.2669, Lng: -97.7729}, 6, 8},
 }
 
 // Peticion es una persona que quiere ir de un sitio a otro a una hora.

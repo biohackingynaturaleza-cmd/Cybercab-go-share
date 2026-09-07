@@ -44,12 +44,14 @@ func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger, o
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /api/v1/zonas", s.zonas)
+	mux.HandleFunc("GET /api/v1/config", s.config)
 
 	// Acceso
 	mux.HandleFunc("POST /api/v1/auth/register", s.register)
 	mux.HandleFunc("POST /api/v1/auth/login", s.login)
 	mux.Handle("GET /api/v1/me", protegida(s.me))
 	mux.Handle("GET /api/v1/me/bookings", protegida(s.myBookings))
+	mux.Handle("GET /api/v1/me/resumen", protegida(s.resumen))
 
 	// Perfiles públicos: se ve con quién vas a compartir coche.
 	mux.HandleFunc("GET /api/v1/users/{id}", s.getUser)

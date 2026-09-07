@@ -1,175 +1,204 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cybercab Go Share — compartir robotaxi en Austin</title>
-<meta name="description" content="Comparte un robotaxi en Austin con gente verificada y paga solo tu parte del camino.">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#07090b">
+<title>Cybercab Go Share — share a robotaxi in Austin, pay half</title>
+<meta name="description" content="Someone is already going where you are. Share a robotaxi with identity-verified people and pay only for your part of the trip.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2307090b'/><path d='M7 20h18M11 20V13l4-3h6l3 4v6' stroke='%232fd4e8' stroke-width='2.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='12' cy='22' r='2' fill='%232fd4e8'/><circle cx='22' cy='22' r='2' fill='%232fd4e8'/></svg>">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
+
+<div class="avisos" id="avisos" role="status" aria-live="polite"></div>
+
 <div class="app">
 
   <header>
     <div class="marca">
-      <b>Cybercab</b> Go Share
-      <span>Austin, TX</span>
+      <b>Cybercab</b> Go Share <em data-t="marca.zona">Austin</em>
     </div>
-    <div id="sesion" class="fila"></div>
+    <div class="cabecera-dcha">
+      <div class="idiomas" role="group" aria-label="Language">
+        <button data-idioma="en">EN</button><button data-idioma="es">ES</button>
+      </div>
+      <span id="sesion" class="cabecera-dcha"></span>
+    </div>
   </header>
 
   <main>
-    <div class="panel" id="panel">
-      <div id="avisos"></div>
-
-      <!-- Sin sesión -->
-      <section id="acceso" class="tarjeta">
-        <h1>Comparte el robotaxi</h1>
-        <p>Alguien ya va a donde tú vas. Compartid el coche y pagad cada uno
-           solo su parte del camino.</p>
-
-        <div class="pestanas" role="tablist" style="margin: 14px 0">
-          <button role="tab" id="tab-entrar" aria-selected="true">Entrar</button>
-          <button role="tab" id="tab-alta" aria-selected="false">Crear cuenta</button>
-        </div>
-
-        <form id="form-acceso">
-          <div class="campo" id="campo-nombre" hidden>
-            <label for="nombre">Nombre</label>
-            <input id="nombre" autocomplete="name" placeholder="Cómo te ven los demás">
-          </div>
-          <div class="campo">
-            <label for="email">Correo</label>
-            <input id="email" type="email" autocomplete="email" required>
-          </div>
-          <div class="campo">
-            <label for="clave">Contraseña</label>
-            <input id="clave" type="password" autocomplete="current-password" required
-                   minlength="10" placeholder="Mínimo 10 caracteres">
-          </div>
-          <button class="btn-principal" id="btn-acceso">Entrar</button>
-        </form>
+    <!-- Panel lateral -->
+    <div class="panel" id="panel" hidden>
+      <!-- Ahorro acumulado: la razón por la que alguien vuelve. -->
+      <section class="ahorro oculto" id="caja-ahorro">
+        <div class="ahorro-cifra" id="ahorro-cifra">0,00 $</div>
+        <div class="ahorro-pie" id="ahorro-pie"></div>
       </section>
 
+      <!-- Peticiones sin responder: lo único que exige actuar. -->
+      <div class="pendientes oculto" id="pendientes" role="button" tabindex="0">
+        <span class="contador" id="pendientes-num">0</span>
+        <span data-t="pendientes.texto"></span>
+      </div>
+
       <!-- Confianza -->
-      <section id="confianza" class="tarjeta acento oculto">
-        <div class="fila" style="margin-bottom: 12px">
-          <h2 style="margin:0">Tu nivel de confianza</h2>
-          <span id="mi-nivel" class="nivel nivel-nuevo">nuevo</span>
-        </div>
+      <section class="tarjeta destaca oculto" id="confianza">
+        <h2><span data-t="confianza.titulo"></span> <span class="nivel nivel-nuevo" id="mi-nivel"></span></h2>
+        <div class="progreso"><i id="progreso-barra" style="width:0%"></i></div>
         <p id="confianza-texto"></p>
         <ul class="comprobaciones" id="lista-comprobaciones"></ul>
       </section>
 
       <!-- Buscar / ofrecer -->
-      <section id="modo" class="oculto">
-        <div class="pestanas" role="tablist">
-          <button role="tab" id="tab-buscar" aria-selected="true">Busco sitio</button>
-          <button role="tab" id="tab-ofrecer" aria-selected="false">Ofrezco plaza</button>
-        </div>
-      </section>
+      <div class="pestanas oculto" id="modo" role="tablist">
+        <button role="tab" id="tab-buscar" aria-selected="true" data-t="modo.buscar"></button>
+        <button role="tab" id="tab-ofrecer" aria-selected="false" data-t="modo.ofrecer"></button>
+      </div>
 
-      <!-- Buscar -->
-      <section id="buscar" class="tarjeta oculto">
-        <h2>¿A dónde vas?</h2>
+      <section class="tarjeta oculto" id="buscar">
+        <h2 data-t="buscar.titulo"></h2>
         <div class="campos-2">
-          <div class="campo">
-            <label for="origen">Desde</label>
-            <select id="origen"></select>
-          </div>
-          <div class="campo">
-            <label for="destino">Hasta</label>
-            <select id="destino"></select>
-          </div>
+          <div class="campo"><label for="origen" data-t="buscar.desde"></label><select id="origen"></select></div>
+          <div class="campo"><label for="destino" data-t="buscar.hasta"></label><select id="destino"></select></div>
         </div>
         <div class="campos-2">
+          <div class="campo"><label for="cuando" data-t="buscar.cuando"></label><input id="cuando" type="datetime-local"></div>
           <div class="campo">
-            <label for="cuando">A partir de</label>
-            <input id="cuando" type="datetime-local">
-          </div>
-          <div class="campo">
-            <label for="margen">Margen</label>
+            <label for="margen" data-t="buscar.margen"></label>
             <select id="margen">
-              <option value="30">± 30 min</option>
-              <option value="60" selected>± 1 hora</option>
-              <option value="180">± 3 horas</option>
-              <option value="1440">Todo el día</option>
+              <option value="30" data-t="buscar.m30"></option>
+              <option value="60" selected data-t="buscar.m60"></option>
+              <option value="180" data-t="buscar.m180"></option>
+              <option value="1440" data-t="buscar.m1440"></option>
             </select>
           </div>
         </div>
-        <button class="btn-principal" id="btn-buscar">Buscar</button>
-        <p class="tenue" style="margin-top:10px">
-          Cuanto más margen des, más probable es encontrar con quién compartir.
-        </p>
+        <button class="btn-1 ancho" id="btn-buscar" style="margin-top:4px" data-t="buscar.boton"></button>
+        <p class="tenue" style="margin-top:10px" data-t="buscar.nota"></p>
       </section>
 
-      <!-- Ofrecer -->
-      <section id="ofrecer" class="tarjeta oculto">
-        <h2>Publica tu trayecto</h2>
+      <section class="tarjeta oculto" id="ofrecer">
+        <h2 data-t="ofrecer.titulo"></h2>
         <div class="campos-2">
-          <div class="campo">
-            <label for="o-origen">Desde</label>
-            <select id="o-origen"></select>
-          </div>
-          <div class="campo">
-            <label for="o-destino">Hasta</label>
-            <select id="o-destino"></select>
-          </div>
+          <div class="campo"><label for="o-origen" data-t="buscar.desde"></label><select id="o-origen"></select></div>
+          <div class="campo"><label for="o-destino" data-t="buscar.hasta"></label><select id="o-destino"></select></div>
         </div>
         <div class="campos-2">
-          <div class="campo">
-            <label for="o-cuando">Salida</label>
-            <input id="o-cuando" type="datetime-local">
-          </div>
-          <div class="campo">
-            <label for="o-vehiculo">Vehículo</label>
-            <select id="o-vehiculo">
-              <option value="model_y">Model Y — 4 plazas</option>
-              <option value="cybercab">Cybercab — 2 plazas</option>
-            </select>
-          </div>
+          <div class="campo"><label for="o-cuando" data-t="ofrecer.salida"></label><input id="o-cuando" type="datetime-local"></div>
+          <div class="campo"><label for="o-vehiculo" data-t="ofrecer.vehiculo"></label><select id="o-vehiculo"></select></div>
         </div>
         <div class="campo">
-          <label for="o-nivel">Exigir a quien se suba</label>
+          <label for="o-nivel" data-t="ofrecer.exigir"></label>
           <select id="o-nivel">
-            <option value="nuevo">Lo mínimo del vehículo</option>
-            <option value="verificado">Identidad verificada</option>
-            <option value="veterano">Veterano (con historial)</option>
+            <option value="nuevo" data-t="ofrecer.minimo"></option>
+            <option value="verificado" data-t="ofrecer.verificado"></option>
+            <option value="veterano" data-t="ofrecer.veterano"></option>
           </select>
         </div>
-        <div id="o-suelo" class="aviso" style="margin-bottom:12px"></div>
-        <button class="btn-principal" id="btn-publicar">Publicar</button>
+        <div class="nota" id="o-suelo" style="margin-bottom:12px"></div>
+        <button class="btn-1 ancho" id="btn-publicar" data-t="ofrecer.boton"></button>
       </section>
 
-      <!-- Resultados -->
-      <section id="resultados-caja" class="oculto">
+      <section class="oculto" id="resultados-caja">
         <h2 id="resultados-titulo">Resultados</h2>
         <div class="resultados" id="resultados"></div>
       </section>
 
-      <!-- Mis trayectos -->
-      <section id="mios-caja" class="oculto">
-        <h2>Lo que has publicado</h2>
+      <section class="oculto" id="mios-caja">
+        <h2 data-t="mios.titulo"></h2>
         <div class="resultados" id="mios"></div>
       </section>
     </div>
 
+    <!-- Lienzo -->
     <div class="lienzo">
       <div class="mapa-cab">
-        <span id="mapa-titulo">Área de servicio · Austin metro</span>
+        <span id="mapa-titulo" data-t="mapa.area"></span>
         <span id="mapa-nota"></span>
       </div>
-      <svg class="mapa" id="mapa" viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid meet"
-           role="img" aria-label="Mapa esquemático del área de servicio de Austin"></svg>
+      <div class="mapa-caja">
+        <svg class="mapa" id="mapa" viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid meet"
+             role="img" data-t-aria="mapa.area"></svg>
+
+        <!-- Portada, para quien todavía no ha entrado -->
+        <div class="portada" id="portada">
+          <div class="portada-texto">
+            <span class="sobretitulo" data-t="portada.sobretitulo"></span>
+            <h1 data-t-html="portada.titulo"></h1>
+            <p class="entradilla" data-t="portada.entradilla"></p>
+
+            <div class="calc" role="group" data-t-aria="portada.ahorro">
+              <div class="calc-selectores">
+                <div><label for="c-origen" data-t="portada.desde"></label><select id="c-origen"></select></div>
+                <span class="calc-flecha" aria-hidden="true">→</span>
+                <div><label for="c-destino" data-t="portada.hasta"></label><select id="c-destino"></select></div>
+              </div>
+              <div class="calc-cifras">
+                <div class="cifra solo"><span data-t="portada.solo"></span><b id="c-solo">—</b></div>
+                <div class="cifra junto"><span data-t="portada.junto"></span><b id="c-junto">—</b></div>
+              </div>
+              <div class="calc-pie" id="c-pie"></div>
+            </div>
+
+            <div class="portada-cta">
+              <button class="btn-1" id="cta-alta" data-t="portada.crear"></button>
+              <button class="btn-2" id="cta-entrar" data-t="portada.tengo"></button>
+            </div>
+
+            <ol class="pasos">
+              <li><span class="num">1</span><div><strong data-t="portada.paso1.t"></strong><p data-t="portada.paso1.d"></p></div></li>
+              <li><span class="num">2</span><div><strong data-t="portada.paso2.t"></strong><p data-t="portada.paso2.d"></p></div></li>
+              <li><span class="num">3</span><div><strong data-t="portada.paso3.t"></strong><p data-t="portada.paso3.d"></p></div></li>
+            </ol>
+
+            <p class="portada-nota" data-t="portada.nota"></p>
+          </div>
+
+          <!-- El mapa se ve al fondo, a la derecha -->
+          <div></div>
+        </div>
+
+        <!-- Acceso -->
+        <div class="portada oculto" id="acceso" style="grid-template-columns:1fr">
+          <div class="portada-texto" style="max-width:440px;margin:0 auto;width:100%">
+            <button class="enlace" id="volver" style="margin-bottom:20px" data-t="acceso.volver"></button>
+            <h1 style="font-size:30px" id="acceso-titulo"></h1>
+            <p class="entradilla" style="font-size:15px" id="acceso-sub"></p>
+            <form id="form-acceso" class="tarjeta">
+              <div class="campo" id="campo-nombre">
+                <label for="nombre" data-t="acceso.nombre"></label>
+                <input id="nombre" autocomplete="name" data-t-ph="acceso.nombre.ph">
+              </div>
+              <div class="campo">
+                <label for="email" data-t="acceso.correo"></label>
+                <input id="email" type="email" autocomplete="email" required>
+              </div>
+              <div class="campo">
+                <label for="clave" data-t="acceso.clave"></label>
+                <input id="clave" type="password" autocomplete="new-password" required
+                       minlength="10" data-t-ph="acceso.clave.ph">
+              </div>
+              <button class="btn-1 ancho" id="btn-acceso" style="margin-top:6px">Crear cuenta</button>
+            </form>
+            <p class="portada-nota">
+              <span id="cambiar-texto"></span>
+              <button class="enlace" id="cambiar-modo"></button>
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div class="leyenda">
-        <span><i style="background:#35d6e8"></i>tu trayecto</span>
-        <span><i style="background:#3d5a66"></i>plazas ofrecidas</span>
-        <span><i style="background:#3ecf8e"></i>tramo compartido</span>
+        <span><i style="background:#2fd4e8"></i><span data-t="leyenda.tuyo"></span></span>
+        <span><i style="background:#3a5561"></i><span data-t="leyenda.ofrecidas"></span></span>
+        <span><i style="background:#3ddc97"></i><span data-t="leyenda.compartido"></span></span>
       </div>
     </div>
   </main>
-
 </div>
+
+<script src="/i18n.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

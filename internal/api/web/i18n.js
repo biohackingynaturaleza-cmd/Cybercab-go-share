@@ -1,0 +1,356 @@
+'use strict';
+
+/* Textos de la interfaz.
+ *
+ * El servicio opera en Austin, así que el idioma por defecto es el inglés y el
+ * español está al mismo nivel, no como traducción de segunda: en Austin hay
+ * cientos de miles de hispanohablantes y son parte del mercado, no un añadido.
+ *
+ * Todo el texto que ve una persona vive aquí. El servidor devuelve códigos
+ * estables —"verificado", "open", "cybercab"— y la interfaz decide cómo se
+ * dicen; así añadir un idioma no obliga a tocar la API. */
+
+const TEXTOS = {
+  en: {
+    'idioma.nombre': 'English',
+
+    'marca.zona': 'Austin',
+    'cab.entrar': 'Sign in',
+    'cab.salir': 'Sign out',
+
+    'portada.sobretitulo': 'Austin, Texas · live',
+    'portada.titulo': 'Someone is already going<br>where <span>you are</span>.',
+    'portada.entradilla': 'Share a robotaxi with identity-verified people and pay only for your part of the trip. No driver, no detours, no paying for miles you never travel.',
+    'portada.desde': 'From',
+    'portada.hasta': 'To',
+    'portada.solo': 'On your own',
+    'portada.junto': 'Sharing',
+    'portada.ahorro': '{km} km · you save {ahorro} every trip',
+    'portada.elige': 'Pick two different places.',
+    'portada.paso1.t': 'Verify who you are',
+    'portada.paso1.d': 'ID and a selfie. Once, and for good.',
+    'portada.paso2.t': 'Say where you are going',
+    'portada.paso2.d': 'We show you who already makes that trip and what you would pay.',
+    'portada.paso3.t': 'You share the ride',
+    'portada.paso3.d': 'Each pays their own leg. Nobody profits from the trip.',
+    'portada.crear': 'Create account',
+    'portada.tengo': 'I already have an account',
+    'portada.nota': 'With no driver there are no witnesses, so identity is checked for real here — and that is why you can trust whoever rides with you.',
+
+    'acceso.volver': '← Back',
+    'acceso.crear': 'Create account',
+    'acceso.entrar': 'Sign in',
+    'acceso.sub.crear': 'An email address is all it takes to start.',
+    'acceso.sub.entrar': 'Welcome back.',
+    'acceso.nombre': 'Name',
+    'acceso.nombre.ph': 'How others will see you',
+    'acceso.correo': 'Email',
+    'acceso.clave': 'Password',
+    'acceso.clave.ph': 'At least 10 characters',
+    'acceso.ya': 'Already have an account?',
+    'acceso.aun': 'No account yet?',
+    'acceso.entrar.enlace': 'Sign in',
+    'acceso.crear.enlace': 'Create one',
+    'acceso.creando': 'Creating…',
+    'acceso.entrando': 'Signing in…',
+
+    'confianza.titulo': 'Your trust level',
+    'confianza.hecho': 'Identity verified. You can share any vehicle, including the two-seat Cybercab.',
+    'confianza.falta': '{n} of {total} left. There is no driver here to act as a witness: that is why we check who you are, and why you can trust whoever rides with you.',
+    'confianza.verificar': 'Verify',
+    'check.email': 'Email address',
+    'check.phone': 'Phone number',
+    'check.government_id': 'Government ID',
+    'check.selfie_liveness': 'Selfie with liveness check',
+    'check.phone.d': 'Unlocks four-seat vehicles',
+    'check.selfie_liveness.d': 'Unlocks the Cybercab and every ride',
+
+    'nivel.nuevo': 'new',
+    'nivel.básico': 'basic',
+    'nivel.verificado': 'verified',
+    'nivel.veterano': 'veteran',
+
+    'ahorro.llevas': 'Saved so far · ',
+    'ahorro.vas': 'You will save · ',
+    'ahorro.viajes': '{n} shared ride(s)',
+    'ahorro.pordelante': '{n} coming up',
+    'ahorro.empieza': 'start sharing',
+    'pendientes.texto': 'You have seat requests waiting for an answer',
+
+    'modo.buscar': 'Find a seat',
+    'modo.ofrecer': 'Offer a seat',
+
+    'buscar.titulo': 'Where are you going?',
+    'buscar.desde': 'From',
+    'buscar.hasta': 'To',
+    'buscar.cuando': 'Leaving after',
+    'buscar.margen': 'Flexibility',
+    'buscar.m30': '± 30 min',
+    'buscar.m60': '± 1 hour',
+    'buscar.m180': '± 3 hours',
+    'buscar.m1440': 'Any time',
+    'buscar.boton': 'Find a seat',
+    'buscar.nota': 'The more flexible you are, the more likely you find someone to share with.',
+
+    'ofrecer.titulo': 'Publish your trip',
+    'ofrecer.salida': 'Departure',
+    'ofrecer.vehiculo': 'Vehicle',
+    'ofrecer.exigir': 'Require from riders',
+    'ofrecer.minimo': 'The vehicle minimum',
+    'ofrecer.verificado': 'Verified identity',
+    'ofrecer.veterano': 'Veteran, with history',
+    'ofrecer.boton': 'Publish trip',
+    'ofrecer.publicando': 'Publishing…',
+    'ofrecer.plazas': '{n} seats',
+
+    'suelo.biplaza': 'Two seats means you travel alone together, with no driver and nobody else on board. Both of you need a verified identity, and that cannot be lowered.',
+    'suelo.amplio': 'A {n}-seat vehicle carries more people. The minimum is a verified email and phone, but you can ask for more.',
+
+    'res.titulo.uno': '1 matching ride',
+    'res.titulo.varios': '{n} matching rides',
+    'res.vacio.titulo': 'Nobody makes that trip in that window yet.',
+    'res.vacio.boton': 'Publish it yourself and let others join',
+    'res.sin': 'No results',
+    'res.compartis': 'sharing {km} km',
+    'res.apie': '{m} m walk',
+    'res.plazas': '{n} seat(s)',
+    'res.exige': 'requires {nivel}',
+    'res.pedir': 'Request seat',
+    'res.pidiendo': 'Requesting…',
+
+    'mios.titulo': 'What you have published',
+    'mios.piden': 'Requesting {n} seat(s) · would add {precio}',
+    'mios.aceptar': 'Accept',
+    'mios.no': 'No',
+    'mios.libres': '{libres}/{total} free',
+    'mios.confirmadas': '{n} confirmed',
+    'mios.rutareal': 'real route',
+    'mios.rutaest': 'estimated route',
+    'estado.open': 'open',
+    'estado.full': 'full',
+    'estado.cancelled': 'cancelled',
+    'estado.completed': 'completed',
+
+    'mapa.area': 'Service area · Austin metro',
+    'leyenda.tuyo': 'your trip',
+    'leyenda.ofrecidas': 'seats offered',
+    'leyenda.compartido': 'shared leg',
+
+    'aviso.cuenta.t': 'Account created',
+    'aviso.cuenta.d': 'Verify your identity to start sharing rides.',
+    'aviso.verificado.t': 'Identity verified',
+    'aviso.verificado.d': 'You can now share any vehicle, including the Cybercab.',
+    'aviso.publicado.t': 'Trip published',
+    'aviso.publicado.d': 'We will let you know as soon as someone requests a seat.',
+    'aviso.pedida.t': 'Seat requested',
+    'aviso.pedida.d': 'The organiser has to accept you before it is final. We will let you know.',
+    'aviso.confirmada.t': 'Seat confirmed',
+    'aviso.confirmada.d': 'You are sharing the ride.',
+    'aviso.rechazada.t': 'Request declined',
+    'aviso.nombre.t': 'Your name is missing',
+    'aviso.nombre.d': 'It is what the people you share a car with will see.',
+    'aviso.lugares.t': 'Pick an origin and a destination',
+    'aviso.lugares.d': 'They have to be different places.',
+    'aviso.hora.t': 'Departure time is missing',
+    'aviso.nopuedes.t': 'You cannot join this ride yet',
+    'aviso.tefalta': 'You still need to verify: {lista}.',
+    'aviso.fallo.t': 'That did not work',
+    'aviso.nocarga.t': 'Could not load the service area',
+    'aviso.nocarga.d': 'Please reload the page.',
+    'aviso.completa.t': 'Finish verifying',
+    'aviso.completa.d': 'A window has opened. Come back here when you are done.',
+
+    'confirmar.responsabilidad': 'The robotaxi terms make you responsible for the conduct of anyone you let into the vehicle, including any damage they cause.\n\nCheck their trust profile before accepting.\n\nDo you accept that?',
+  },
+
+  es: {
+    'idioma.nombre': 'Español',
+
+    'marca.zona': 'Austin',
+    'cab.entrar': 'Entrar',
+    'cab.salir': 'Salir',
+
+    'portada.sobretitulo': 'Austin, Texas · en marcha',
+    'portada.titulo': 'Alguien ya va<br>a donde <span>tú vas</span>.',
+    'portada.entradilla': 'Comparte el robotaxi con gente de identidad verificada y paga solo tu parte del camino. Sin conductor, sin rodeos, sin pagar por kilómetros que no haces.',
+    'portada.desde': 'Desde',
+    'portada.hasta': 'Hasta',
+    'portada.solo': 'Tú solo',
+    'portada.junto': 'Compartiendo',
+    'portada.ahorro': '{km} km · te ahorras {ahorro} en cada viaje',
+    'portada.elige': 'Elige dos sitios distintos.',
+    'portada.paso1.t': 'Verifica quién eres',
+    'portada.paso1.d': 'Documento y selfie. Una vez, y para siempre.',
+    'portada.paso2.t': 'Di a dónde vas',
+    'portada.paso2.d': 'Te enseñamos quién hace ya ese camino y cuánto pagarías.',
+    'portada.paso3.t': 'Compartís el coche',
+    'portada.paso3.d': 'Cada uno paga su tramo. Nadie gana dinero con el viaje.',
+    'portada.crear': 'Crear cuenta',
+    'portada.tengo': 'Ya tengo cuenta',
+    'portada.nota': 'Sin conductor no hay testigos, así que aquí la identidad se comprueba de verdad — y por eso puedes fiarte de quien se suba contigo.',
+
+    'acceso.volver': '← Volver',
+    'acceso.crear': 'Crear cuenta',
+    'acceso.entrar': 'Entrar',
+    'acceso.sub.crear': 'Solo hace falta un correo para empezar.',
+    'acceso.sub.entrar': 'Bienvenido de vuelta.',
+    'acceso.nombre': 'Nombre',
+    'acceso.nombre.ph': 'Cómo te verán los demás',
+    'acceso.correo': 'Correo',
+    'acceso.clave': 'Contraseña',
+    'acceso.clave.ph': 'Mínimo 10 caracteres',
+    'acceso.ya': '¿Ya tienes cuenta?',
+    'acceso.aun': '¿Aún no tienes cuenta?',
+    'acceso.entrar.enlace': 'Entrar',
+    'acceso.crear.enlace': 'Crear una',
+    'acceso.creando': 'Creando…',
+    'acceso.entrando': 'Entrando…',
+
+    'confianza.titulo': 'Tu nivel de confianza',
+    'confianza.hecho': 'Identidad acreditada. Puedes compartir cualquier vehículo, incluido el Cybercab biplaza.',
+    'confianza.falta': 'Te faltan {n} de {total}. Aquí no hay conductor que haga de testigo: por eso se comprueba quién eres, y por eso puedes fiarte de quien se suba contigo.',
+    'confianza.verificar': 'Verificar',
+    'check.email': 'Correo electrónico',
+    'check.phone': 'Teléfono',
+    'check.government_id': 'Documento de identidad',
+    'check.selfie_liveness': 'Selfie con prueba de vida',
+    'check.phone.d': 'Desbloquea los vehículos de 4 plazas',
+    'check.selfie_liveness.d': 'Desbloquea el Cybercab y todos los viajes',
+
+    'nivel.nuevo': 'nuevo',
+    'nivel.básico': 'básico',
+    'nivel.verificado': 'verificado',
+    'nivel.veterano': 'veterano',
+
+    'ahorro.llevas': 'Llevas ahorrados · ',
+    'ahorro.vas': 'Vas a ahorrar · ',
+    'ahorro.viajes': '{n} viaje(s) compartido(s)',
+    'ahorro.pordelante': '{n} por delante',
+    'ahorro.empieza': 'empieza a compartir',
+    'pendientes.texto': 'Tienes peticiones de plaza sin responder',
+
+    'modo.buscar': 'Busco sitio',
+    'modo.ofrecer': 'Ofrezco plaza',
+
+    'buscar.titulo': '¿A dónde vas?',
+    'buscar.desde': 'Desde',
+    'buscar.hasta': 'Hasta',
+    'buscar.cuando': 'A partir de',
+    'buscar.margen': 'Margen',
+    'buscar.m30': '± 30 min',
+    'buscar.m60': '± 1 hora',
+    'buscar.m180': '± 3 horas',
+    'buscar.m1440': 'Cualquier hora',
+    'buscar.boton': 'Buscar plaza',
+    'buscar.nota': 'Cuanto más margen des, más probable es encontrar con quién compartir.',
+
+    'ofrecer.titulo': 'Publica tu trayecto',
+    'ofrecer.salida': 'Salida',
+    'ofrecer.vehiculo': 'Vehículo',
+    'ofrecer.exigir': 'Exigir a quien se suba',
+    'ofrecer.minimo': 'Lo mínimo del vehículo',
+    'ofrecer.verificado': 'Identidad verificada',
+    'ofrecer.veterano': 'Veterano, con historial',
+    'ofrecer.boton': 'Publicar trayecto',
+    'ofrecer.publicando': 'Publicando…',
+    'ofrecer.plazas': '{n} plazas',
+
+    'suelo.biplaza': 'Es un vehículo de dos plazas: viajaréis solos y sin conductor, así que ambas partes necesitáis la identidad verificada. No se puede rebajar.',
+    'suelo.amplio': 'Vehículo de {n} plazas: lleva más gente a bordo. El mínimo es correo y teléfono verificados, pero puedes exigir más.',
+
+    'res.titulo.uno': '1 viaje compatible',
+    'res.titulo.varios': '{n} viajes compatibles',
+    'res.vacio.titulo': 'Nadie hace ese camino en esa franja todavía.',
+    'res.vacio.boton': 'Publícalo tú y que se sumen',
+    'res.sin': 'Sin resultados',
+    'res.compartis': 'compartís {km} km',
+    'res.apie': 'a pie {m} m',
+    'res.plazas': '{n} plaza(s)',
+    'res.exige': 'exige {nivel}',
+    'res.pedir': 'Pedir plaza',
+    'res.pidiendo': 'Pidiendo…',
+
+    'mios.titulo': 'Lo que has publicado',
+    'mios.piden': 'Piden {n} plaza(s) · aportarían {precio}',
+    'mios.aceptar': 'Aceptar',
+    'mios.no': 'No',
+    'mios.libres': '{libres}/{total} libres',
+    'mios.confirmadas': '{n} confirmada(s)',
+    'mios.rutareal': 'ruta real',
+    'mios.rutaest': 'ruta estimada',
+    'estado.open': 'abierto',
+    'estado.full': 'completo',
+    'estado.cancelled': 'anulado',
+    'estado.completed': 'realizado',
+
+    'mapa.area': 'Área de servicio · Austin metro',
+    'leyenda.tuyo': 'tu trayecto',
+    'leyenda.ofrecidas': 'plazas ofrecidas',
+    'leyenda.compartido': 'tramo compartido',
+
+    'aviso.cuenta.t': 'Cuenta creada',
+    'aviso.cuenta.d': 'Verifica tu identidad para poder compartir coche.',
+    'aviso.verificado.t': 'Identidad verificada',
+    'aviso.verificado.d': 'Ya puedes compartir cualquier vehículo, incluido el Cybercab.',
+    'aviso.publicado.t': 'Trayecto publicado',
+    'aviso.publicado.d': 'Te avisaremos en cuanto alguien pida plaza.',
+    'aviso.pedida.t': 'Plaza pedida',
+    'aviso.pedida.d': 'Quien organiza tiene que aceptarte antes de que sea firme. Te avisaremos.',
+    'aviso.confirmada.t': 'Plaza confirmada',
+    'aviso.confirmada.d': 'Ya tenéis el viaje compartido.',
+    'aviso.rechazada.t': 'Petición rechazada',
+    'aviso.nombre.t': 'Falta tu nombre',
+    'aviso.nombre.d': 'Es lo que verán las personas con las que compartas coche.',
+    'aviso.lugares.t': 'Elige origen y destino',
+    'aviso.lugares.d': 'Tienen que ser sitios distintos.',
+    'aviso.hora.t': 'Falta la hora de salida',
+    'aviso.nopuedes.t': 'Todavía no puedes subirte a este viaje',
+    'aviso.tefalta': 'Te falta verificar: {lista}.',
+    'aviso.fallo.t': 'No ha podido ser',
+    'aviso.nocarga.t': 'No se pudo cargar el área de servicio',
+    'aviso.nocarga.d': 'Recarga la página.',
+    'aviso.completa.t': 'Completa la verificación',
+    'aviso.completa.d': 'Se ha abierto una ventana. Vuelve aquí cuando termines.',
+
+    'confirmar.responsabilidad': 'Los términos del robotaxi te hacen responsable de la conducta de quien dejes subir al vehículo, incluidos los daños que cause.\n\nRevisa su perfil de confianza antes de aceptar.\n\n¿Lo asumes?',
+  },
+};
+
+/* El idioma por defecto es el inglés porque el servicio opera en Austin; si el
+   navegador está en español, se arranca en español. La elección manual manda
+   sobre ambas cosas. */
+function idiomaInicial() {
+  const guardado = localStorage.getItem('idioma');
+  if (guardado && TEXTOS[guardado]) return guardado;
+  return (navigator.language || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
+}
+
+let IDIOMA = idiomaInicial();
+
+function idioma() { return IDIOMA; }
+
+function cambiarIdioma(nuevo) {
+  if (!TEXTOS[nuevo]) return;
+  IDIOMA = nuevo;
+  localStorage.setItem('idioma', nuevo);
+  document.documentElement.lang = nuevo;
+}
+
+/* t traduce una clave y sustituye los huecos {así}. Si falta una clave devuelve
+   la propia clave: mejor ver el fallo que un hueco en blanco. */
+function t(clave, vars) {
+  let texto = TEXTOS[IDIOMA][clave] ?? TEXTOS.en[clave] ?? clave;
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) texto = texto.replaceAll(`{${k}}`, v);
+  }
+  return texto;
+}
+
+/* aplicarTextos rellena todo lo que en el HTML lleva data-t. */
+function aplicarTextos(raiz = document) {
+  raiz.querySelectorAll('[data-t]').forEach((el) => { el.textContent = t(el.dataset.t); });
+  raiz.querySelectorAll('[data-t-html]').forEach((el) => { el.innerHTML = t(el.dataset.tHtml); });
+  raiz.querySelectorAll('[data-t-ph]').forEach((el) => { el.placeholder = t(el.dataset.tPh); });
+  raiz.querySelectorAll('[data-t-aria]').forEach((el) => { el.setAttribute('aria-label', t(el.dataset.tAria)); });
+  document.documentElement.lang = IDIOMA;
+}
