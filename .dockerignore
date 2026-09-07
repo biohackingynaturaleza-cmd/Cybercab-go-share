@@ -1,0 +1,8 @@
+.git
+.github
+bin
+coverage.out
+*.out
+docs
+osrm
+README.md

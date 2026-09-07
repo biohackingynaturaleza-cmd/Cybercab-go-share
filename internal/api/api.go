@@ -43,6 +43,7 @@ func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger, o
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
+	mux.HandleFunc("GET /api/v1/zonas", s.zonas)
 
 	// Acceso
 	mux.HandleFunc("POST /api/v1/auth/register", s.register)
@@ -87,6 +88,12 @@ func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger, o
 	if s.devIdentidad != nil {
 		log.Warn("endpoint de desarrollo activo: /api/v1/dev/verificaciones/{ref}/resolver")
 		mux.Handle("POST /api/v1/dev/verificaciones/{ref}/resolver", protegida(s.devResolverVerificacion))
+	}
+
+	// La interfaz se sirve desde el propio binario, después de las rutas de la
+	// API para que "/" no se coma nada.
+	if err := montarWeb(mux); err != nil {
+		log.Error("no se pudo montar la interfaz web", "err", err)
 	}
 
 	return withLogging(log, mux)

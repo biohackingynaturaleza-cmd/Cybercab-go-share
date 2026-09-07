@@ -1,0 +1,41 @@
+# Entorno completo para desarrollo: la aplicación, su base de datos con PostGIS
+# y un motor de rutas real.
+services:
+  app:
+    build: .
+    ports: ["8080:8080"]
+    environment:
+      PORT: "8080"
+      DATABASE_URL: postgres://cybercab:cybercab@db:5432/cybercab?sslmode=disable
+      # En producción esto es obligatorio y no debe estar en el fichero.
+      AUTH_SECRET: cambia-esto-por-un-secreto-de-al-menos-32-bytes
+      OSRM_URL: http://osrm:5000
+      SEED_DEMO: "1"
+    depends_on:
+      db: { condition: service_healthy }
+
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: cybercab
+      POSTGRES_PASSWORD: cybercab
+      POSTGRES_DB: cybercab
+    ports: ["5432:5432"]
+    volumes: ["datos:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cybercab"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Motor de rutas propio. El servidor público de demostración de OSRM no tiene
+  # garantías de servicio y no debe usarse en producción.
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:latest
+    command: osrm-routed --algorithm mld /data/texas-latest.osrm
+    volumes: ["./osrm:/data"]
+    ports: ["5000:5000"]
+    profiles: ["rutas-reales"]
+
+volumes:
+  datos:

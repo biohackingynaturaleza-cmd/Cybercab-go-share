@@ -30,5 +30,11 @@ lint: ## Formato y análisis estático
 tidy: ## Ordena las dependencias
 	go mod tidy
 
+docker: ## Construye la imagen
+	docker build -t cybercab-go-share .
+
+arriba: ## Levanta app + Postgres con PostGIS
+	docker compose up --build
+
 clean:
 	rm -rf bin coverage.out

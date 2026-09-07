@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cybercab Go Share — compartir robotaxi en Austin</title>
+<meta name="description" content="Comparte un robotaxi en Austin con gente verificada y paga solo tu parte del camino.">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="marca">
+      <b>Cybercab</b> Go Share
+      <span>Austin, TX</span>
+    </div>
+    <div id="sesion" class="fila"></div>
+  </header>
+
+  <main>
+    <div class="panel" id="panel">
+      <div id="avisos"></div>
+
+      <!-- Sin sesión -->
+      <section id="acceso" class="tarjeta">
+        <h1>Comparte el robotaxi</h1>
+        <p>Alguien ya va a donde tú vas. Compartid el coche y pagad cada uno
+           solo su parte del camino.</p>
+
+        <div class="pestanas" role="tablist" style="margin: 14px 0">
+          <button role="tab" id="tab-entrar" aria-selected="true">Entrar</button>
+          <button role="tab" id="tab-alta" aria-selected="false">Crear cuenta</button>
+        </div>
+
+        <form id="form-acceso">
+          <div class="campo" id="campo-nombre" hidden>
+            <label for="nombre">Nombre</label>
+            <input id="nombre" autocomplete="name" placeholder="Cómo te ven los demás">
+          </div>
+          <div class="campo">
+            <label for="email">Correo</label>
+            <input id="email" type="email" autocomplete="email" required>
+          </div>
+          <div class="campo">
+            <label for="clave">Contraseña</label>
+            <input id="clave" type="password" autocomplete="current-password" required
+                   minlength="10" placeholder="Mínimo 10 caracteres">
+          </div>
+          <button class="btn-principal" id="btn-acceso">Entrar</button>
+        </form>
+      </section>
+
+      <!-- Confianza -->
+      <section id="confianza" class="tarjeta acento oculto">
+        <div class="fila" style="margin-bottom: 12px">
+          <h2 style="margin:0">Tu nivel de confianza</h2>
+          <span id="mi-nivel" class="nivel nivel-nuevo">nuevo</span>
+        </div>
+        <p id="confianza-texto"></p>
+        <ul class="comprobaciones" id="lista-comprobaciones"></ul>
+      </section>
+
+      <!-- Buscar / ofrecer -->
+      <section id="modo" class="oculto">
+        <div class="pestanas" role="tablist">
+          <button role="tab" id="tab-buscar" aria-selected="true">Busco sitio</button>
+          <button role="tab" id="tab-ofrecer" aria-selected="false">Ofrezco plaza</button>
+        </div>
+      </section>
+
+      <!-- Buscar -->
+      <section id="buscar" class="tarjeta oculto">
+        <h2>¿A dónde vas?</h2>
+        <div class="campos-2">
+          <div class="campo">
+            <label for="origen">Desde</label>
+            <select id="origen"></select>
+          </div>
+          <div class="campo">
+            <label for="destino">Hasta</label>
+            <select id="destino"></select>
+          </div>
+        </div>
+        <div class="campos-2">
+          <div class="campo">
+            <label for="cuando">A partir de</label>
+            <input id="cuando" type="datetime-local">
+          </div>
+          <div class="campo">
+            <label for="margen">Margen</label>
+            <select id="margen">
+              <option value="30">± 30 min</option>
+              <option value="60" selected>± 1 hora</option>
+              <option value="180">± 3 horas</option>
+              <option value="1440">Todo el día</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn-principal" id="btn-buscar">Buscar</button>
+        <p class="tenue" style="margin-top:10px">
+          Cuanto más margen des, más probable es encontrar con quién compartir.
+        </p>
+      </section>
+
+      <!-- Ofrecer -->
+      <section id="ofrecer" class="tarjeta oculto">
+        <h2>Publica tu trayecto</h2>
+        <div class="campos-2">
+          <div class="campo">
+            <label for="o-origen">Desde</label>
+            <select id="o-origen"></select>
+          </div>
+          <div class="campo">
+            <label for="o-destino">Hasta</label>
+            <select id="o-destino"></select>
+          </div>
+        </div>
+        <div class="campos-2">
+          <div class="campo">
+            <label for="o-cuando">Salida</label>
+            <input id="o-cuando" type="datetime-local">
+          </div>
+          <div class="campo">
+            <label for="o-vehiculo">Vehículo</label>
+            <select id="o-vehiculo">
+              <option value="model_y">Model Y — 4 plazas</option>
+              <option value="cybercab">Cybercab — 2 plazas</option>
+            </select>
+          </div>
+        </div>
+        <div class="campo">
+          <label for="o-nivel">Exigir a quien se suba</label>
+          <select id="o-nivel">
+            <option value="nuevo">Lo mínimo del vehículo</option>
+            <option value="verificado">Identidad verificada</option>
+            <option value="veterano">Veterano (con historial)</option>
+          </select>
+        </div>
+        <div id="o-suelo" class="aviso" style="margin-bottom:12px"></div>
+        <button class="btn-principal" id="btn-publicar">Publicar</button>
+      </section>
+
+      <!-- Resultados -->
+      <section id="resultados-caja" class="oculto">
+        <h2 id="resultados-titulo">Resultados</h2>
+        <div class="resultados" id="resultados"></div>
+      </section>
+
+      <!-- Mis trayectos -->
+      <section id="mios-caja" class="oculto">
+        <h2>Lo que has publicado</h2>
+        <div class="resultados" id="mios"></div>
+      </section>
+    </div>
+
+    <div class="lienzo">
+      <div class="mapa-cab">
+        <span id="mapa-titulo">Área de servicio · Austin metro</span>
+        <span id="mapa-nota"></span>
+      </div>
+      <svg class="mapa" id="mapa" viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid meet"
+           role="img" aria-label="Mapa esquemático del área de servicio de Austin"></svg>
+      <div class="leyenda">
+        <span><i style="background:#35d6e8"></i>tu trayecto</span>
+        <span><i style="background:#3d5a66"></i>plazas ofrecidas</span>
+        <span><i style="background:#3ecf8e"></i>tramo compartido</span>
+      </div>
+    </div>
+  </main>
+
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

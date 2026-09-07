@@ -147,12 +147,17 @@ devuelve error en vez de inventarse una línea recta.
 ## Arrancar
 
 ```bash
-make demo      # API en :8080 con un trayecto de ejemplo Austin → AUS
+make demo      # app completa en http://localhost:8080, con datos de ejemplo
 make test      # pruebas con detector de carreras
 make test-pg   # incluye las pruebas contra Postgres
 make cover     # informe de cobertura
 make lint      # gofmt + go vet
+make arriba    # app + Postgres con PostGIS, en contenedores
 ```
+
+Un solo binario estático de 11 MB con la interfaz dentro: no hay despliegue de
+frontend aparte que pueda quedar desincronizado con la API. Ver
+[`docs/despliegue.md`](docs/despliegue.md).
 
 ## API
 
@@ -209,6 +214,7 @@ internal/simulacion/ medición de la ocupación de la flota
 internal/store/      persistencia (memoria o Postgres+PostGIS)
 internal/service/    lógica de negocio
 internal/api/        capa HTTP
+internal/api/web/    interfaz de usuario, embebida en el binario
 ```
 
 Las capas van de dentro hacia fuera: `geo`, `domain` y `trust` no conocen a
@@ -284,4 +290,5 @@ Ver [`docs/modelo-de-negocio.md`](docs/modelo-de-negocio.md).
 3. **Pagos.** Cobrar el reparto y liquidarlo con quien organiza.
 4. **Compartir el viaje en tiempo real** con un contacto de confianza, y botón
    de emergencia. En un coche sin conductor pesa más que en uno con conductor.
-5. **Interfaz de usuario.**
+5. **Un proveedor de identidad real.** Es lo único que separa la app de poder
+   admitir usuarios de verdad.
