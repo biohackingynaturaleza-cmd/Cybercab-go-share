@@ -12,6 +12,10 @@ build: ## Compila el binario en bin/server
 test: ## Ejecuta las pruebas con detector de carreras
 	go test -race ./...
 
+test-pg: ## Pruebas incluyendo las de Postgres (necesita TEST_DATABASE_URL)
+	TEST_DATABASE_URL=$${TEST_DATABASE_URL:-postgres://cybercab:cybercab@127.0.0.1:5432/cybercab_test} \
+		go test -race ./...
+
 cover: ## Informe de cobertura
 	go test -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out | tail -1

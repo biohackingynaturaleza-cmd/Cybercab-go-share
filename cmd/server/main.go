@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -37,7 +38,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	db := store.NewMemory()
+	db, closeDB, err := buildStore(context.Background(), log)
+	if err != nil {
+		log.Error("no se pudo preparar el almacén", "err", err)
+		os.Exit(1)
+	}
+	defer closeDB()
+
 	svc := service.New(db, service.Config{
 		Tariff:   tariff,
 		SpeedKmh: speed,
@@ -82,6 +89,31 @@ func main() {
 		log.Error("apagado forzado", "err", err)
 	}
 	log.Info("servidor detenido")
+}
+
+// buildStore elige dónde se guardan los datos: Postgres si hay DATABASE_URL,
+// y si no, memoria. La memoria solo sirve para desarrollo: al reiniciar se
+// pierde todo.
+func buildStore(ctx context.Context, log *slog.Logger) (store.Store, func(), error) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		if os.Getenv("ENV") == "production" {
+			return nil, nil, errors.New("DATABASE_URL es obligatorio en producción")
+		}
+		log.Warn("DATABASE_URL sin definir: los datos se guardan en memoria y se perderán al reiniciar")
+		return store.NewMemory(), func() {}, nil
+	}
+
+	pg, err := store.NewPostgres(ctx, dsn)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := pg.Migrate(ctx); err != nil {
+		pg.Close()
+		return nil, nil, fmt.Errorf("aplicando migraciones: %w", err)
+	}
+	log.Info("almacén en Postgres, migraciones al día")
+	return pg, pg.Close, nil
 }
 
 // buildTokenIssuer prepara la firma de sesiones. En producción el secreto es

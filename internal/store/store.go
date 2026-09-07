@@ -19,6 +19,9 @@ var ErrNotFound = errors.New("no encontrado")
 // ErrEmailEnUso se devuelve al registrar un email ya dado de alta.
 var ErrEmailEnUso = errors.New("ese email ya está registrado")
 
+// ErrSinPlazas se devuelve cuando el trayecto no admite las plazas pedidas.
+var ErrSinPlazas = errors.New("no quedan plazas libres")
+
 // Store es el contrato de persistencia de la aplicación.
 type Store interface {
 	CreateUser(u *domain.User) error
@@ -29,6 +32,14 @@ type Store interface {
 	GetTrip(id string) (*domain.Trip, error)
 	UpdateTrip(t *domain.Trip) error
 	ListOpenTrips() ([]*domain.Trip, error)
+
+	// ReserveSeats ocupa plazas de forma atómica y devuelve ErrSinPlazas si no
+	// quedan suficientes. Es una sola operación a propósito: leer las plazas,
+	// decidir y luego escribirlas deja una ventana en la que dos personas
+	// reservan el mismo asiento.
+	ReserveSeats(tripID string, seats int) error
+	// ReleaseSeats devuelve plazas al trayecto tras un rechazo o una anulación.
+	ReleaseSeats(tripID string, seats int) error
 
 	CreateBooking(b *domain.Booking) error
 	GetBooking(id string) (*domain.Booking, error)
@@ -133,6 +144,42 @@ func (m *Memory) UpdateTrip(t *domain.Trip) error {
 		return ErrNotFound
 	}
 	m.trips[t.ID] = cloneTrip(t)
+	return nil
+}
+
+// ReserveSeats ocupa plazas bajo el mismo cerrojo que las comprueba.
+func (m *Memory) ReserveSeats(tripID string, seats int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.trips[tripID]
+	if !ok {
+		return ErrNotFound
+	}
+	if t.Status != domain.TripOpen || t.SeatsAvailable() < seats {
+		return ErrSinPlazas
+	}
+	t.SeatsTaken += seats
+	if t.SeatsAvailable() == 0 {
+		t.Status = domain.TripFull
+	}
+	return nil
+}
+
+// ReleaseSeats libera plazas y reabre el trayecto si estaba completo.
+func (m *Memory) ReleaseSeats(tripID string, seats int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.trips[tripID]
+	if !ok {
+		return ErrNotFound
+	}
+	t.SeatsTaken -= seats
+	if t.SeatsTaken < 0 {
+		t.SeatsTaken = 0
+	}
+	if t.Status == domain.TripFull && t.SeatsAvailable() > 0 {
+		t.Status = domain.TripOpen
+	}
 	return nil
 }
 

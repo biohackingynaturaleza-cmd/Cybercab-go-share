@@ -247,8 +247,13 @@ func (s *Service) CancelTrip(tripID, hostID string) (*domain.Trip, error) {
 }
 
 // Search busca trayectos compatibles con lo que pide un pasajero.
-func (s *Service) Search(_ context.Context, q matching.Query) ([]matching.Match, error) {
-	trips, err := s.store.ListOpenTrips()
+//
+// El filtro grueso —qué rutas pasan cerca— lo hace el almacén si sabe
+// (Postgres, con su índice espacial); si no, se recorren los trayectos
+// abiertos. El emparejamiento fino es siempre el mismo código, de modo que el
+// resultado no depende de dónde estén guardados los datos.
+func (s *Service) Search(ctx context.Context, q matching.Query) ([]matching.Match, error) {
+	trips, err := s.candidates(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -262,6 +267,34 @@ func (s *Service) Search(_ context.Context, q matching.Query) ([]matching.Match,
 	}
 	return matching.Find(trips, q, occ, s.cfg.Tariff, s.cfg.SpeedKmh), nil
 }
+
+// candidates devuelve los trayectos que merece la pena evaluar.
+func (s *Service) candidates(ctx context.Context, q matching.Query) ([]*domain.Trip, error) {
+	searcher, ok := s.store.(store.GeoSearcher)
+	if !ok {
+		return s.store.ListOpenTrips()
+	}
+
+	maxDist := q.MaxWalkKm
+	if maxDist <= 0 {
+		maxDist = matching.DefaultMaxWalkKm
+	}
+	// El filtro del almacén debe ser más ancho que el criterio final: quien
+	// organiza puede aceptar un desvío mayor que lo que el pasajero pide
+	// caminar, y descartarlo aquí perdería trayectos válidos.
+	return searcher.CandidateTrips(ctx, store.GeoQuery{
+		Pickup:            q.Pickup,
+		Dropoff:           q.Dropoff,
+		EarliestDeparture: q.EarliestDeparture,
+		LatestDeparture:   q.LatestDeparture,
+		Seats:             q.Seats,
+		MaxDistanceKm:     maxDist + maxDetourMargenKm,
+	})
+}
+
+// maxDetourMargenKm es el margen que se añade al filtro del almacén para no
+// descartar trayectos cuyo organizador acepta desviarse más de lo pedido.
+const maxDetourMargenKm = 5
 
 // --- Reservas ---
 
@@ -325,6 +358,16 @@ func (s *Service) RequestBooking(in BookInput) (*domain.Booking, error) {
 		t.HostID,
 	)
 
+	// La plaza se retiene desde la petición, y se retiene antes de crear la
+	// reserva: si dos personas piden a la vez la última plaza, solo una pasa
+	// de aquí.
+	if err := s.store.ReserveSeats(t.ID, in.Seats); err != nil {
+		if errors.Is(err, store.ErrSinPlazas) {
+			return nil, ErrNoSeats
+		}
+		return nil, err
+	}
+
 	b := &domain.Booking{
 		ID:             newID("bkg"),
 		TripID:         t.ID,
@@ -339,16 +382,9 @@ func (s *Service) RequestBooking(in BookInput) (*domain.Booking, error) {
 		CreatedAt:      s.cfg.Now(),
 	}
 	if err := s.store.CreateBooking(b); err != nil {
-		return nil, err
-	}
-
-	// La plaza queda retenida desde la petición para que dos personas no
-	// puedan reservar el mismo asiento mientras se decide.
-	t.SeatsTaken += in.Seats
-	if t.SeatsAvailable() == 0 {
-		t.Status = domain.TripFull
-	}
-	if err := s.store.UpdateTrip(t); err != nil {
+		// La reserva no llegó a existir: devolvemos la plaza en vez de dejarla
+		// retenida para siempre.
+		_ = s.store.ReleaseSeats(t.ID, in.Seats)
 		return nil, err
 	}
 	return b, nil
@@ -561,12 +597,5 @@ func (s *Service) occupants(t *domain.Trip) ([]pricing.Occupant, error) {
 
 // releaseSeats devuelve plazas al trayecto tras un rechazo o una anulación.
 func (s *Service) releaseSeats(t *domain.Trip, seats int) error {
-	t.SeatsTaken -= seats
-	if t.SeatsTaken < 0 {
-		t.SeatsTaken = 0
-	}
-	if t.Status == domain.TripFull && t.SeatsAvailable() > 0 {
-		t.Status = domain.TripOpen
-	}
-	return s.store.UpdateTrip(t)
+	return s.store.ReleaseSeats(t.ID, seats)
 }
