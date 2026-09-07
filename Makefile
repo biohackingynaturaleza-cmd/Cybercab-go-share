@@ -6,6 +6,9 @@ run: ## Arranca la API en :8080
 demo: ## Arranca la API con datos de ejemplo de Austin
 	SEED_DEMO=1 go run ./cmd/server
 
+simulacion: ## Mide cuánta más demanda sirve la misma flota al compartir
+	go run ./cmd/simulacion
+
 build: ## Compila el binario en bin/server
 	go build -o bin/server ./cmd/server
 

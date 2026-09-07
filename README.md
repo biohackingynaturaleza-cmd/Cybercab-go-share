@@ -205,6 +205,7 @@ internal/routing/    rutas reales por carretera (OSRM) con respaldo
 internal/matching/   qué trayectos encajan con una búsqueda, y en qué orden
 internal/fleet/      frontera con la flota de robotaxis
 internal/billing/    libro de apuntes, compensación y liquidación
+internal/simulacion/ medición de la ocupación de la flota
 internal/store/      persistencia (memoria o Postgres+PostGIS)
 internal/service/    lógica de negocio
 internal/api/        capa HTTP
@@ -232,6 +233,21 @@ rutas, de proveedor de identidad o de flota es implementar una interfaz.
 | `AVG_SPEED_KMH` | `45` | Velocidad media de respaldo |
 
 > Las tarifas son una **estimación de mercado**, no precios oficiales de Tesla.
+
+## Cuánta más demanda sirve la misma flota
+
+Con 1 000 viajes al día en Austin y parámetros conservadores, compartir hace que
+**la misma flota atienda 1,35× más demanda** (Model Y) o **1,26×** (Cybercab
+biplaza). Con 20 vehículos se cubre lo que hoy necesitaría 27.
+
+Y el efecto **crece con la escala**: a 5 000 viajes al día el factor sube a
+2,24×. Hoy, con pocos coches, es cuando menos aporta; el día que la flota sea
+grande, esta capa duplica su capacidad efectiva.
+
+La simulación corre sobre el motor de emparejamiento real, con semilla fija para
+que cualquiera reproduzca el resultado: `make simulacion`. Ver
+[`docs/ocupacion-de-flota.md`](docs/ocupacion-de-flota.md), con los supuestos
+declarados para poder discutirlos.
 
 ## Cómo se cobra
 
