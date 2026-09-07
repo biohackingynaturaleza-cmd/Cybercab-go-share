@@ -25,6 +25,9 @@ type Query struct {
 	LatestDeparture   time.Time
 	Seats             int
 	MaxWalkKm         float64
+	// ViajeroID es quien busca, si va identificado. Sirve para no enseñarle
+	// trayectos de personas con las que se ha bloqueado.
+	ViajeroID string
 }
 
 func (q Query) normalized() Query {

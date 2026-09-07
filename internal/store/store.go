@@ -7,10 +7,12 @@ package store
 
 import (
 	"errors"
+	"sort"
 	"strings"
 	"sync"
 
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/trust"
 )
 
 // ErrNotFound se devuelve cuando el identificador no existe.
@@ -21,6 +23,10 @@ var ErrEmailEnUso = errors.New("ese email ya está registrado")
 
 // ErrSinPlazas se devuelve cuando el trayecto no admite las plazas pedidas.
 var ErrSinPlazas = errors.New("no quedan plazas libres")
+
+// ErrComprobacionEnCurso se devuelve al abrir una comprobación de un tipo que
+// esa persona ya tiene pendiente o superada.
+var ErrComprobacionEnCurso = errors.New("ya tienes una comprobación de ese tipo en curso o superada")
 
 // Store es el contrato de persistencia de la aplicación.
 type Store interface {
@@ -46,6 +52,21 @@ type Store interface {
 	UpdateBooking(b *domain.Booking) error
 	BookingsByTrip(tripID string) ([]*domain.Booking, error)
 	BookingsByPassenger(userID string) ([]*domain.Booking, error)
+
+	// Comprobaciones de identidad
+	CreateCheck(c *trust.Check) error
+	UpdateCheck(c *trust.Check) error
+	GetCheckByRef(providerRef string) (*trust.Check, error)
+	ChecksByUser(userID string) ([]trust.Check, error)
+
+	// Bloqueos entre personas
+	CreateBlock(blockerID, blockedID string) error
+	DeleteBlock(blockerID, blockedID string) error
+	// BlockedPairs devuelve a quién ha bloqueado userID y quién le ha
+	// bloqueado a él. El bloqueo corta en las dos direcciones: quien bloquea
+	// no quiere ver a la otra persona, y quien es bloqueado tampoco debe poder
+	// buscarla.
+	BlockedPairs(userID string) (map[string]bool, error)
 }
 
 // Memory es un Store en memoria, seguro para uso concurrente.
@@ -56,6 +77,9 @@ type Memory struct {
 	byEmail  map[string]string
 	trips    map[string]*domain.Trip
 	bookings map[string]*domain.Booking
+	checks   map[string]*trust.Check
+	// blocks son pares "bloqueador|bloqueado".
+	blocks map[string]bool
 	// tripOrder preserva el orden de alta para que los listados sean estables.
 	tripOrder []string
 }
@@ -67,6 +91,8 @@ func NewMemory() *Memory {
 		byEmail:  map[string]string{},
 		trips:    map[string]*domain.Trip{},
 		bookings: map[string]*domain.Booking{},
+		checks:   map[string]*trust.Check{},
+		blocks:   map[string]bool{},
 	}
 }
 
@@ -255,4 +281,98 @@ func cloneTrip(t *domain.Trip) *domain.Trip {
 	cp := *t
 	cp.Route = append(cp.Route[:0:0], t.Route...)
 	return &cp
+}
+
+// --- Comprobaciones de identidad ---
+
+func (m *Memory) CreateCheck(c *trust.Check) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.checks[c.ID]; ok {
+		return errors.New("la comprobación ya existe")
+	}
+	// Una sola comprobación viva de cada tipo por persona: sin esto, un
+	// rechazo se podría enterrar bajo intentos repetidos.
+	for _, existente := range m.checks {
+		if existente.UserID == c.UserID && existente.Kind == c.Kind &&
+			(existente.Status == trust.StatusPending || existente.Status == trust.StatusVerified) {
+			return ErrComprobacionEnCurso
+		}
+	}
+	cp := *c
+	m.checks[c.ID] = &cp
+	return nil
+}
+
+func (m *Memory) UpdateCheck(c *trust.Check) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.checks[c.ID]; !ok {
+		return ErrNotFound
+	}
+	cp := *c
+	m.checks[c.ID] = &cp
+	return nil
+}
+
+func (m *Memory) GetCheckByRef(providerRef string) (*trust.Check, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, c := range m.checks {
+		if c.ProviderRef == providerRef {
+			cp := *c
+			return &cp, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (m *Memory) ChecksByUser(userID string) ([]trust.Check, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []trust.Check
+	for _, c := range m.checks {
+		if c.UserID == userID {
+			out = append(out, *c)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+// --- Bloqueos ---
+
+func blockKey(blocker, blocked string) string { return blocker + "|" + blocked }
+
+func (m *Memory) CreateBlock(blockerID, blockedID string) error {
+	if blockerID == blockedID {
+		return errors.New("no puedes bloquearte a ti mismo")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.blocks[blockKey(blockerID, blockedID)] = true
+	return nil
+}
+
+func (m *Memory) DeleteBlock(blockerID, blockedID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.blocks, blockKey(blockerID, blockedID))
+	return nil
+}
+
+func (m *Memory) BlockedPairs(userID string) (map[string]bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := map[string]bool{}
+	for key := range m.blocks {
+		blocker, blocked, _ := strings.Cut(key, "|")
+		switch userID {
+		case blocker:
+			out[blocked] = true
+		case blocked:
+			out[blocker] = true
+		}
+	}
+	return out, nil
 }

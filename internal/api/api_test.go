@@ -14,6 +14,7 @@ import (
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/auth"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/service"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/store"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/trust"
 )
 
 const password = "contraseña-de-prueba"
@@ -32,7 +33,14 @@ func lugar(name string, p map[string]float64) map[string]any {
 	return map[string]any{"name": name, "point": p}
 }
 
-func newTestServer(t *testing.T) *httptest.Server {
+// entorno es el servidor de pruebas junto al proveedor de identidad, que hace
+// falta para resolver las verificaciones a mano.
+type entorno struct {
+	*httptest.Server
+	identidad *trust.Manual
+}
+
+func newTestServer(t *testing.T) *entorno {
 	t.Helper()
 	secret, err := auth.GenerateSecret()
 	if err != nil {
@@ -42,16 +50,43 @@ func newTestServer(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatalf("NewTokenIssuer: %v", err)
 	}
-	svc := service.New(store.NewMemory(), service.Config{Tokens: tokens})
+	identidad := trust.NewManual("http://test")
+	svc := service.New(store.NewMemory(), service.Config{Tokens: tokens, Identidad: identidad})
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := httptest.NewServer(api.NewServer(svc, tokens, log))
 	t.Cleanup(srv.Close)
-	return srv
+	return &entorno{Server: srv, identidad: identidad}
+}
+
+// acreditar lleva a alguien hasta la identidad verificada por los mismos
+// endpoints que usaría la aplicación.
+func acreditar(t *testing.T, e *entorno, token string) {
+	t.Helper()
+	tipos := []string{"email", "phone", "government_id", "selfie_liveness"}
+	for _, kind := range tipos {
+		var abierta struct {
+			Verificacion struct {
+				ProviderRef string `json:"provider_ref"`
+			} `json:"verificacion"`
+		}
+		if code := do(t, e, http.MethodPost, "/api/v1/me/verificaciones", token,
+			map[string]string{"kind": kind}, &abierta); code != http.StatusCreated {
+			t.Fatalf("abriendo verificación %s: código = %d", kind, code)
+		}
+		ref := abierta.Verificacion.ProviderRef
+		if err := e.identidad.Resolve(ref, trust.Outcome{Status: trust.StatusVerified}); err != nil {
+			t.Fatalf("Resolve(%s): %v", kind, err)
+		}
+		if code := do(t, e, http.MethodPost,
+			"/api/v1/me/verificaciones/"+ref+"/refrescar", token, nil, nil); code != http.StatusOK {
+			t.Fatalf("refrescando %s: código = %d", kind, code)
+		}
+	}
 }
 
 // do lanza una petición autenticada con token (vacío = sin autenticar) y
 // descodifica la respuesta JSON en out.
-func do(t *testing.T, srv *httptest.Server, method, path, token string, body, out any) int {
+func do(t *testing.T, srv *entorno, method, path, token string, body, out any) int {
 	t.Helper()
 	var buf bytes.Buffer
 	if body != nil {
@@ -91,7 +126,7 @@ type sesion struct {
 	} `json:"user"`
 }
 
-func registrar(t *testing.T, srv *httptest.Server, name, email string) sesion {
+func registrar(t *testing.T, srv *entorno, name, email string) sesion {
 	t.Helper()
 	var s sesion
 	code := do(t, srv, http.MethodPost, "/api/v1/auth/register", "",
@@ -102,11 +137,26 @@ func registrar(t *testing.T, srv *httptest.Server, name, email string) sesion {
 	if s.Token == "" {
 		t.Fatalf("el registro de %s no devolvió token", name)
 	}
+	// Por defecto, identidad acreditada: la mayoría de pruebas van de otra
+	// cosa, y las que van de confianza usan registrarSinVerificar.
+	acreditar(t, srv, s.Token)
+	return s
+}
+
+// registrarSinVerificar da de alta a alguien sin acreditar nada.
+func registrarSinVerificar(t *testing.T, srv *entorno, name, email string) sesion {
+	t.Helper()
+	var s sesion
+	code := do(t, srv, http.MethodPost, "/api/v1/auth/register", "",
+		map[string]string{"name": name, "email": email, "password": password}, &s)
+	if code != http.StatusCreated {
+		t.Fatalf("registro de %s: código = %d", name, code)
+	}
 	return s
 }
 
 // publicarTrayecto crea un viaje centro → aeropuerto y devuelve su id.
-func publicarTrayecto(t *testing.T, srv *httptest.Server, token string) string {
+func publicarTrayecto(t *testing.T, srv *entorno, token string) string {
 	t.Helper()
 	var trip map[string]any
 	code := do(t, srv, http.MethodPost, "/api/v1/trips", token, map[string]any{
@@ -410,5 +460,166 @@ func TestMetodoNoPermitido(t *testing.T) {
 	srv := newTestServer(t)
 	if code := do(t, srv, http.MethodDelete, "/api/v1/trips", "", nil, nil); code != http.StatusMethodNotAllowed {
 		t.Fatalf("código = %d, esperaba 405", code)
+	}
+}
+
+// --- Confianza y seguridad ---
+
+func TestSinIdentidadVerificadaNoSeReservaUnCybercab(t *testing.T) {
+	srv := newTestServer(t)
+	ana := registrar(t, srv, "Ana", "ana@example.com")
+	// Bruno se registra pero no acredita nada.
+	bruno := registrarSinVerificar(t, srv, "Bruno", "bruno@example.com")
+
+	var trip map[string]any
+	code := do(t, srv, http.MethodPost, "/api/v1/trips", ana.Token, map[string]any{
+		"origin":         lugar("Centro", centro),
+		"destination":    lugar("AUS", aus),
+		"departure_time": time.Now().UTC().Add(3 * time.Hour).Format(time.RFC3339),
+		"vehicle":        "cybercab",
+	}, &trip)
+	if code != http.StatusCreated {
+		t.Fatalf("alta del trayecto: código = %d (%v)", code, trip)
+	}
+	// El trayecto anuncia el nivel que exige y por qué.
+	if trip["nivel_exigido"] != "verificado" {
+		t.Errorf("nivel exigido = %v, esperaba verificado", trip["nivel_exigido"])
+	}
+	if trip["motivo_nivel"] == "" {
+		t.Error("el trayecto no explica por qué exige ese nivel")
+	}
+
+	var rechazo map[string]any
+	code = do(t, srv, http.MethodPost, "/api/v1/trips/"+trip["id"].(string)+"/bookings",
+		bruno.Token, map[string]any{
+			"pickup":  lugar("Riverside", riverside),
+			"dropoff": lugar("AUS", aus),
+		}, &rechazo)
+
+	if code != http.StatusForbidden {
+		t.Fatalf("código = %d, esperaba 403", code)
+	}
+	// El rechazo dice qué falta, no solo que no.
+	if rechazo["exigido"] != "verificado" || rechazo["actual"] != "nuevo" {
+		t.Errorf("respuesta = %v", rechazo)
+	}
+	if _, ok := rechazo["te_falta"]; !ok {
+		t.Error("el rechazo no dice qué comprobaciones faltan")
+	}
+	if rechazo["motivo"] == "" {
+		t.Error("el rechazo no explica el motivo")
+	}
+}
+
+func TestElPerfilDeConfianzaEsPublicoYNoFiltraDatos(t *testing.T) {
+	srv := newTestServer(t)
+	ana := registrar(t, srv, "Ana", "ana@example.com")
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/v1/users/"+ana.User.ID+"/confianza", nil)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("petición: %v", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("código = %d, esperaba 200", resp.StatusCode)
+	}
+	var perfil map[string]any
+	if err := json.Unmarshal(raw, &perfil); err != nil {
+		t.Fatalf("JSON: %v", err)
+	}
+	if perfil["nivel"] != "verificado" {
+		t.Errorf("nivel = %v, esperaba verificado", perfil["nivel"])
+	}
+	// El perfil dice qué se ha acreditado, nunca el dato acreditado ni el
+	// contacto de la persona.
+	for _, prohibido := range []string{"ana@example.com", "password", "$2a$", "provider_ref"} {
+		if bytes.Contains(raw, []byte(prohibido)) {
+			t.Errorf("el perfil público contiene %q: %s", prohibido, raw)
+		}
+	}
+}
+
+func TestBloquearOcultaYImpideReservar(t *testing.T) {
+	srv := newTestServer(t)
+	ana := registrar(t, srv, "Ana", "ana@example.com")
+	bruno := registrar(t, srv, "Bruno", "bruno@example.com")
+	tripID := publicarTrayecto(t, srv, ana.Token)
+
+	// Antes de bloquear, Bruno ve el trayecto.
+	var antes map[string]any
+	do(t, srv, http.MethodPost, "/api/v1/search", bruno.Token,
+		map[string]any{"pickup": riverside, "dropoff": aus}, &antes)
+	if antes["count"].(float64) != 1 {
+		t.Fatalf("resultados antes de bloquear = %v, esperaba 1", antes["count"])
+	}
+
+	if code := do(t, srv, http.MethodPost, "/api/v1/users/"+ana.User.ID+"/bloquear",
+		bruno.Token, nil, nil); code != http.StatusOK {
+		t.Fatalf("bloquear: código = %d", code)
+	}
+
+	var despues map[string]any
+	do(t, srv, http.MethodPost, "/api/v1/search", bruno.Token,
+		map[string]any{"pickup": riverside, "dropoff": aus}, &despues)
+	if despues["count"].(float64) != 0 {
+		t.Fatalf("resultados tras bloquear = %v, esperaba 0", despues["count"])
+	}
+
+	code := do(t, srv, http.MethodPost, "/api/v1/trips/"+tripID+"/bookings", bruno.Token,
+		map[string]any{"pickup": lugar("Riverside", riverside), "dropoff": lugar("AUS", aus)}, nil)
+	if code != http.StatusForbidden {
+		t.Fatalf("reserva tras bloquear: código = %d, esperaba 403", code)
+	}
+}
+
+func TestNoSePuedeRefrescarLaVerificacionDeOtraPersona(t *testing.T) {
+	srv := newTestServer(t)
+	ana := registrarSinVerificar(t, srv, "Ana", "ana@example.com")
+	intrusa := registrarSinVerificar(t, srv, "Eva", "eva@example.com")
+
+	var abierta struct {
+		Verificacion struct {
+			ProviderRef string `json:"provider_ref"`
+		} `json:"verificacion"`
+	}
+	do(t, srv, http.MethodPost, "/api/v1/me/verificaciones", ana.Token,
+		map[string]string{"kind": "government_id"}, &abierta)
+
+	code := do(t, srv, http.MethodPost,
+		"/api/v1/me/verificaciones/"+abierta.Verificacion.ProviderRef+"/refrescar",
+		intrusa.Token, nil, nil)
+	if code != http.StatusForbidden {
+		t.Fatalf("código = %d, esperaba 403", code)
+	}
+}
+
+func TestLasVerificacionesPropiasSonPrivadas(t *testing.T) {
+	srv := newTestServer(t)
+	ana := registrar(t, srv, "Ana", "ana@example.com")
+
+	var mias map[string]any
+	if code := do(t, srv, http.MethodGet, "/api/v1/me/verificaciones", ana.Token, nil, &mias); code != http.StatusOK {
+		t.Fatalf("código = %d, esperaba 200", code)
+	}
+	if len(mias["verificaciones"].([]any)) != 4 {
+		t.Fatalf("verificaciones = %v, esperaba 4", mias["verificaciones"])
+	}
+	// Sin token no se llega.
+	if code := do(t, srv, http.MethodGet, "/api/v1/me/verificaciones", "", nil, nil); code != http.StatusUnauthorized {
+		t.Errorf("sin token: código = %d, esperaba 401", code)
+	}
+}
+
+func TestUnTipoDeComprobacionDesconocidoSeRechaza(t *testing.T) {
+	srv := newTestServer(t)
+	ana := registrarSinVerificar(t, srv, "Ana", "ana@example.com")
+
+	code := do(t, srv, http.MethodPost, "/api/v1/me/verificaciones", ana.Token,
+		map[string]string{"kind": "huella_dactilar"}, nil)
+	if code != http.StatusUnprocessableEntity {
+		t.Fatalf("código = %d, esperaba 422", code)
 	}
 }

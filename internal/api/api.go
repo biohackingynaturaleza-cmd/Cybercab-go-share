@@ -15,6 +15,7 @@ import (
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/matching"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/service"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/store"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/trust"
 )
 
 // Server enruta las peticiones HTTP hacia el servicio.
@@ -45,6 +46,16 @@ func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger) h
 
 	// Perfiles públicos: se ve con quién vas a compartir coche.
 	mux.HandleFunc("GET /api/v1/users/{id}", s.getUser)
+	mux.HandleFunc("GET /api/v1/users/{id}/confianza", s.perfilDeConfianza)
+
+	// Verificación de identidad
+	mux.Handle("POST /api/v1/me/verificaciones", protegida(s.iniciarVerificacion))
+	mux.Handle("GET /api/v1/me/verificaciones", protegida(s.misVerificaciones))
+	mux.Handle("POST /api/v1/me/verificaciones/{ref}/refrescar", protegida(s.refrescarVerificacion))
+
+	// Bloqueos
+	mux.Handle("POST /api/v1/users/{id}/bloquear", protegida(s.bloquear))
+	mux.Handle("POST /api/v1/users/{id}/desbloquear", protegida(s.desbloquear))
 
 	// Trayectos
 	mux.HandleFunc("GET /api/v1/trips", s.listTrips)
@@ -59,7 +70,8 @@ func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger) h
 	mux.Handle("POST /api/v1/bookings/{id}/decision", protegida(s.decideBooking))
 	mux.Handle("POST /api/v1/bookings/{id}/cancel", protegida(s.cancelBooking))
 
-	mux.HandleFunc("POST /api/v1/search", s.search)
+	// La búsqueda es pública, pero si trae token se filtra por bloqueos.
+	mux.Handle("POST /api/v1/search", auth.Optional(verifier)(http.HandlerFunc(s.search)))
 
 	return withLogging(log, mux)
 }
@@ -146,6 +158,7 @@ type createTripRequest struct {
 	Vehicle       domain.VehicleType `json:"vehicle"`
 	SeatsOffered  int                `json:"seats_offered"`
 	MaxDetourKm   float64            `json:"max_detour_km"`
+	MinTrustLevel trust.Level        `json:"min_trust_level"`
 	Notes         string             `json:"notes"`
 }
 
@@ -163,6 +176,7 @@ func (s *Server) createTrip(w http.ResponseWriter, r *http.Request) {
 		Vehicle:       req.Vehicle,
 		SeatsOffered:  req.SeatsOffered,
 		MaxDetourKm:   req.MaxDetourKm,
+		MinTrustLevel: req.MinTrustLevel,
 		Notes:         req.Notes,
 	})
 	if err != nil {
@@ -301,6 +315,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		LatestDeparture:   req.LatestDeparture,
 		Seats:             req.Seats,
 		MaxWalkKm:         req.MaxWalkKm,
+		ViajeroID:         actor(r),
 	})
 	if err != nil {
 		writeError(w, err)
@@ -338,6 +353,9 @@ func tripView(t *domain.Trip) map[string]any {
 		"duration_min":    round2(t.DurationMin),
 		"route_source":    t.RouteSource,
 		"max_detour_km":   t.MaxDetourKm,
+		"nivel_exigido":   t.NivelExigido(),
+		"motivo_nivel":    trust.ExplicarSuelo(t.AforoTotal()),
+		"aforo_total":     t.AforoTotal(),
 		"notes":           t.Notes,
 		"status":          t.Status,
 		"created_at":      t.CreatedAt,
@@ -388,8 +406,25 @@ func writeError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, auth.ErrCredencialesInvalidas), errors.Is(err, auth.ErrTokenInvalido):
 		unauthorized(w, nil, err)
-	case errors.Is(err, service.ErrNoAutorizado):
+	case errors.Is(err, service.ErrNoAutorizado), errors.Is(err, service.ErrBloqueado):
 		writeProblem(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, trust.ErrConfianzaInsuficiente):
+		// 403 con el detalle de qué falta: negar el acceso sin explicar qué
+		// hacer para conseguirlo solo genera abandono.
+		var req *service.RequisitoNoCumplido
+		if errors.As(err, &req) {
+			writeJSON(w, http.StatusForbidden, map[string]any{
+				"error":    err.Error(),
+				"exigido":  req.Exigido,
+				"actual":   req.Actual,
+				"te_falta": req.TeFaltan,
+				"motivo":   req.Motivo,
+			})
+			return
+		}
+		writeProblem(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, store.ErrComprobacionEnCurso):
+		writeProblem(w, http.StatusConflict, err.Error())
 	case errors.Is(err, store.ErrEmailEnUso):
 		writeProblem(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrNoSeats):

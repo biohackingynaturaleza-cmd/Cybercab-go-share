@@ -11,6 +11,7 @@ import (
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/geo"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/matching"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/store"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/trust"
 )
 
 var (
@@ -20,17 +21,19 @@ var (
 )
 
 type fixture struct {
-	svc   *Service
-	host  *domain.User
-	rider *domain.User
-	trip  *domain.Trip
+	svc       *Service
+	identidad *trust.Manual
+	host      *domain.User
+	rider     *domain.User
+	trip      *domain.Trip
 }
 
 const testPassword = "contraseña-de-prueba"
 
 // newTestService construye un servicio listo para pruebas: emisor de tokens
-// propio y rutas en línea recta, sin depender de la red.
-func newTestService(t *testing.T) *Service {
+// propio, rutas en línea recta y proveedor de identidad manual, sin depender
+// de la red.
+func newTestService(t *testing.T) (*Service, *trust.Manual) {
 	t.Helper()
 	secret, err := auth.GenerateSecret()
 	if err != nil {
@@ -40,12 +43,51 @@ func newTestService(t *testing.T) *Service {
 	if err != nil {
 		t.Fatalf("NewTokenIssuer: %v", err)
 	}
-	return New(store.NewMemory(), Config{Tokens: tokens})
+	identidad := trust.NewManual("http://test")
+	return New(store.NewMemory(), Config{Tokens: tokens, Identidad: identidad}), identidad
+}
+
+// acreditar hace pasar a alguien por el flujo real de verificación hasta
+// alcanzar el nivel pedido. No inyecta comprobaciones a mano a propósito: así
+// las pruebas recorren el mismo camino que la aplicación.
+func acreditar(t *testing.T, svc *Service, m *trust.Manual, userID string, nivel trust.Level) {
+	t.Helper()
+	var tipos []trust.CheckKind
+	switch {
+	case nivel >= trust.LevelVerificado:
+		tipos = []trust.CheckKind{trust.CheckEmail, trust.CheckPhone, trust.CheckGovernmentID, trust.CheckSelfie}
+	case nivel >= trust.LevelBasico:
+		tipos = []trust.CheckKind{trust.CheckEmail, trust.CheckPhone}
+	default:
+		return
+	}
+
+	ctx := context.Background()
+	for _, kind := range tipos {
+		sess, _, err := svc.IniciarVerificacion(ctx, userID, kind)
+		if err != nil {
+			t.Fatalf("IniciarVerificacion(%s, %s): %v", userID, kind, err)
+		}
+		if err := m.Resolve(sess.Ref, trust.Outcome{Status: trust.StatusVerified}); err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if _, err := svc.RefrescarVerificacion(ctx, sess.Ref); err != nil {
+			t.Fatalf("RefrescarVerificacion: %v", err)
+		}
+	}
+
+	got, err := svc.NivelDe(userID)
+	if err != nil {
+		t.Fatalf("NivelDe: %v", err)
+	}
+	if got < nivel {
+		t.Fatalf("tras acreditar, nivel = %v, esperaba al menos %v", got, nivel)
+	}
 }
 
 func newFixture(t *testing.T, vehicle domain.VehicleType) fixture {
 	t.Helper()
-	svc := newTestService(t)
+	svc, identidad := newTestService(t)
 
 	hostSess, err := svc.Register("Ana", "ana@example.com", testPassword)
 	if err != nil {
@@ -58,6 +100,11 @@ func newFixture(t *testing.T, vehicle domain.VehicleType) fixture {
 	}
 	rider := riderSess.User
 
+	// Ambas partes con identidad acreditada: es lo que exige compartir coche,
+	// y estas pruebas van de la mecánica del viaje, no de la verificación.
+	acreditar(t, svc, identidad, host.ID, trust.LevelVerificado)
+	acreditar(t, svc, identidad, rider.ID, trust.LevelVerificado)
+
 	trip, err := svc.CreateTrip(context.Background(), NewTripInput{
 		HostID:        host.ID,
 		Origin:        downtown,
@@ -69,7 +116,7 @@ func newFixture(t *testing.T, vehicle domain.VehicleType) fixture {
 	if err != nil {
 		t.Fatalf("CreateTrip: %v", err)
 	}
-	return fixture{svc: svc, host: host, rider: rider, trip: trip}
+	return fixture{svc: svc, identidad: identidad, host: host, rider: rider, trip: trip}
 }
 
 func TestCreateTripCybercabOfreceUnaSolaPlaza(t *testing.T) {
@@ -186,6 +233,7 @@ func TestNoSePuedeReservarSinPlazas(t *testing.T) {
 	f := newFixture(t, domain.VehicleCybercab)
 	terceroSess, _ := f.svc.Register("Clara", "clara@example.com", testPassword)
 	tercero := terceroSess.User
+	acreditar(t, f.svc, f.identidad, tercero.ID, trust.LevelVerificado)
 
 	if _, err := f.svc.RequestBooking(BookInput{
 		TripID: f.trip.ID, PassengerID: f.rider.ID,

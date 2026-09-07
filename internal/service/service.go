@@ -16,6 +16,7 @@ import (
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/pricing"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/routing"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/store"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/trust"
 )
 
 // DefaultSpeedKmh es la velocidad media que asumimos para estimar duraciones
@@ -30,6 +31,10 @@ type Config struct {
 	Tokens *auth.TokenIssuer
 	// Router calcula las rutas de los trayectos. Por defecto, línea recta.
 	Router routing.Router
+	// Identidad verifica quién es cada persona. Sin él no se pueden acreditar
+	// identidades, y ningún trayecto que exija nivel verificado admitirá a
+	// nadie: es deliberado, preferimos no dar viajes a darlos sin verificar.
+	Identidad trust.Provider
 	// Now permite fijar el reloj en las pruebas.
 	Now func() time.Time
 }
@@ -148,6 +153,9 @@ type NewTripInput struct {
 	SeatsOffered  int
 	MaxDetourKm   float64
 	Notes         string
+	// MinTrustLevel es el nivel que se exige a quien se suba. El suelo del
+	// vehículo puede elevarlo, nunca rebajarlo.
+	MinTrustLevel trust.Level
 }
 
 // CreateTrip publica un trayecto que otros podrán compartir.
@@ -195,6 +203,7 @@ func (s *Service) CreateTrip(ctx context.Context, in NewTripInput) (*domain.Trip
 		Vehicle:       in.Vehicle,
 		SeatsTotal:    in.SeatsOffered,
 		MaxDetourKm:   in.MaxDetourKm,
+		MinTrustLevel: in.MinTrustLevel,
 		Notes:         in.Notes,
 		Status:        domain.TripOpen,
 		CreatedAt:     s.cfg.Now(),
@@ -257,6 +266,13 @@ func (s *Service) Search(ctx context.Context, q matching.Query) ([]matching.Matc
 	if err != nil {
 		return nil, err
 	}
+	// Quien busca no ve los trayectos de quienes ha bloqueado ni de quienes le
+	// han bloqueado a él.
+	bloqueos, err := s.bloqueados(q.ViajeroID)
+	if err != nil {
+		return nil, err
+	}
+	trips = filtrarBloqueados(trips, bloqueos)
 	occ := matching.Occupancy{}
 	for _, t := range trips {
 		o, err := s.occupants(t)
@@ -324,6 +340,11 @@ func (s *Service) RequestBooking(in BookInput) (*domain.Booking, error) {
 	}
 	if in.PassengerID == t.HostID {
 		return nil, fmt.Errorf("%w: quien organiza ya viaja en el trayecto", domain.ErrValidation)
+	}
+	// La confianza se comprueba antes que las plazas: alguien que no puede
+	// subirse no debe llegar siquiera a retener un asiento.
+	if err := s.comprobarConfianza(t, in.PassengerID); err != nil {
+		return nil, err
 	}
 	if !t.Bookable() {
 		return nil, ErrNoSeats

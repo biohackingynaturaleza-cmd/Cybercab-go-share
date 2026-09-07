@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/geo"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/trust"
 )
 
 // ErrValidation envuelve cualquier fallo de validación de entrada.
@@ -53,6 +54,7 @@ type User struct {
 	// aunque alguien serialice el usuario entero por descuido.
 	PasswordHash string    `json:"-"`
 	Rating       float64   `json:"rating"`
+	RatingCount  int       `json:"rating_count"`
 	RideCount    int       `json:"ride_count"`
 	CreatedAt    time.Time `json:"created_at"`
 }
@@ -88,10 +90,24 @@ type Trip struct {
 	SeatsTaken    int         `json:"seats_taken"`
 	// MaxDetourKm es cuánto acepta desviarse quien organiza para recoger o
 	// dejar a alguien fuera de la línea de la ruta.
-	MaxDetourKm float64    `json:"max_detour_km"`
-	Notes       string     `json:"notes,omitempty"`
-	Status      TripStatus `json:"status"`
-	CreatedAt   time.Time  `json:"created_at"`
+	MaxDetourKm float64 `json:"max_detour_km"`
+	// MinTrustLevel es el nivel de confianza que quien organiza exige a quien
+	// se suba. El suelo del vehículo puede elevarlo, nunca rebajarlo: véase
+	// trust.Requisito.
+	MinTrustLevel trust.Level `json:"min_trust_level"`
+	Notes         string      `json:"notes,omitempty"`
+	Status        TripStatus  `json:"status"`
+	CreatedAt     time.Time   `json:"created_at"`
+}
+
+// AforoTotal son las plazas del vehículo, incluida la de quien organiza.
+// Es lo que decide si el viaje es un cara a cara o hay testigos a bordo.
+func (t *Trip) AforoTotal() int { return t.Vehicle.Seats() }
+
+// NivelExigido es el nivel de confianza que hay que tener para subirse: el
+// mayor entre lo que pide quien organiza y el suelo que impone el vehículo.
+func (t *Trip) NivelExigido() trust.Level {
+	return trust.Requisito(t.MinTrustLevel, t.AforoTotal())
 }
 
 // SeatsAvailable son las plazas que quedan para pasajeros.

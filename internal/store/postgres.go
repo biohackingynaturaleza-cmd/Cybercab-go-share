@@ -17,6 +17,7 @@ import (
 
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/geo"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/trust"
 )
 
 //go:embed migrations/*.sql
@@ -110,16 +111,16 @@ func (p *Postgres) Migrate(ctx context.Context) error {
 
 func (p *Postgres) CreateUser(u *domain.User) error {
 	_, err := p.pool.Exec(context.Background(), `
-		INSERT INTO users (id, name, email, password_hash, rating, ride_count, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		u.ID, u.Name, u.Email, u.PasswordHash, u.Rating, u.RideCount, u.CreatedAt)
+		INSERT INTO users (id, name, email, password_hash, rating, rating_count, ride_count, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		u.ID, u.Name, u.Email, u.PasswordHash, u.Rating, u.RatingCount, u.RideCount, u.CreatedAt)
 	if esViolacionUnica(err, "users_email_key") {
 		return ErrEmailEnUso
 	}
 	return err
 }
 
-const selectUser = `SELECT id, name, email, password_hash, rating, ride_count, created_at FROM users`
+const selectUser = `SELECT id, name, email, password_hash, rating, rating_count, ride_count, created_at FROM users`
 
 func (p *Postgres) GetUser(id string) (*domain.User, error) {
 	return p.scanUser(p.pool.QueryRow(context.Background(), selectUser+` WHERE id = $1`, id))
@@ -132,7 +133,7 @@ func (p *Postgres) GetUserByEmail(email string) (*domain.User, error) {
 
 func (p *Postgres) scanUser(row pgx.Row) (*domain.User, error) {
 	var u domain.User
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.Rating, &u.RideCount, &u.CreatedAt)
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.Rating, &u.RatingCount, &u.RideCount, &u.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -149,15 +150,15 @@ func (p *Postgres) CreateTrip(t *domain.Trip) error {
 		INSERT INTO trips (
 			id, host_id, origin_name, destination_name, route, duration_min,
 			route_source, departure_time, vehicle, seats_total, seats_taken,
-			max_detour_km, notes, status, created_at
+			max_detour_km, min_trust_level, notes, status, created_at
 		) VALUES (
 			$1, $2, $3, $4, ST_GeogFromText($5), $6,
 			$7, $8, $9, $10, $11,
-			$12, $13, $14, $15
+			$12, $13, $14, $15, $16
 		)`,
 		t.ID, t.HostID, t.Origin.Name, t.Destination.Name, lineStringWKT(t.Route), t.DurationMin,
 		t.RouteSource, t.DepartureTime, string(t.Vehicle), t.SeatsTotal, t.SeatsTaken,
-		t.MaxDetourKm, t.Notes, string(t.Status), t.CreatedAt)
+		t.MaxDetourKm, t.MinTrustLevel.Label(), t.Notes, string(t.Status), t.CreatedAt)
 	return err
 }
 
@@ -165,7 +166,7 @@ func (p *Postgres) CreateTrip(t *domain.Trip) error {
 const selectTrip = `
 	SELECT id, host_id, origin_name, destination_name, ST_AsGeoJSON(route),
 	       duration_min, route_source, departure_time, vehicle, seats_total,
-	       seats_taken, max_detour_km, notes, status, created_at
+	       seats_taken, max_detour_km, min_trust_level, notes, status, created_at
 	FROM trips`
 
 func (p *Postgres) GetTrip(id string) (*domain.Trip, error) {
@@ -189,12 +190,12 @@ func (p *Postgres) UpdateTrip(t *domain.Trip) error {
 			origin_name = $2, destination_name = $3, route = ST_GeogFromText($4),
 			duration_min = $5, route_source = $6, departure_time = $7,
 			vehicle = $8, seats_total = $9, seats_taken = $10,
-			max_detour_km = $11, notes = $12, status = $13
+			max_detour_km = $11, min_trust_level = $12, notes = $13, status = $14
 		WHERE id = $1`,
 		t.ID, t.Origin.Name, t.Destination.Name, lineStringWKT(t.Route),
 		t.DurationMin, t.RouteSource, t.DepartureTime,
 		string(t.Vehicle), t.SeatsTotal, t.SeatsTaken,
-		t.MaxDetourKm, t.Notes, string(t.Status))
+		t.MaxDetourKm, t.MinTrustLevel.Label(), t.Notes, string(t.Status))
 	if err != nil {
 		return err
 	}
@@ -436,12 +437,18 @@ func scanTrips(rows pgx.Rows) ([]*domain.Trip, error) {
 			status     string
 			originName string
 			destName   string
+			trustLevel string
 		)
 		if err := rows.Scan(&t.ID, &t.HostID, &originName, &destName, &routeJSON,
 			&t.DurationMin, &t.RouteSource, &t.DepartureTime, &vehicle, &t.SeatsTotal,
-			&t.SeatsTaken, &t.MaxDetourKm, &t.Notes, &status, &t.CreatedAt); err != nil {
+			&t.SeatsTaken, &t.MaxDetourKm, &trustLevel, &t.Notes, &status, &t.CreatedAt); err != nil {
 			return nil, err
 		}
+		nivel, ok := trust.ParseLevel(trustLevel)
+		if !ok {
+			return nil, fmt.Errorf("nivel de confianza desconocido en el trayecto %s: %q", t.ID, trustLevel)
+		}
+		t.MinTrustLevel = nivel
 		route, err := parseLineString(routeJSON)
 		if err != nil {
 			return nil, err
@@ -512,6 +519,7 @@ func esViolacionUnica(err error, constraint string) bool {
 // TruncateAll vacía todas las tablas de datos. Solo para pruebas: deja el
 // esquema intacto pero borra su contenido.
 func (p *Postgres) TruncateAll(ctx context.Context) error {
-	_, err := p.pool.Exec(ctx, `TRUNCATE bookings, trips, users RESTART IDENTITY CASCADE`)
+	_, err := p.pool.Exec(ctx,
+		`TRUNCATE user_blocks, identity_checks, bookings, trips, users RESTART IDENTITY CASCADE`)
 	return err
 }

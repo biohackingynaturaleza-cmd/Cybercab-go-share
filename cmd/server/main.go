@@ -19,6 +19,7 @@ import (
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/routing"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/service"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/store"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/trust"
 )
 
 func main() {
@@ -46,10 +47,11 @@ func main() {
 	defer closeDB()
 
 	svc := service.New(db, service.Config{
-		Tariff:   tariff,
-		SpeedKmh: speed,
-		Tokens:   tokens,
-		Router:   buildRouter(log, speed),
+		Tariff:    tariff,
+		SpeedKmh:  speed,
+		Tokens:    tokens,
+		Router:    buildRouter(log, speed),
+		Identidad: buildIdentityProvider(log),
 	})
 
 	if os.Getenv("SEED_DEMO") == "1" {
@@ -135,6 +137,23 @@ func buildTokenIssuer(log *slog.Logger) (*auth.TokenIssuer, error) {
 	}
 	ttl := time.Duration(envInt64("AUTH_TOKEN_TTL_HOURS", 24)) * time.Hour
 	return auth.NewTokenIssuer(secret, ttl)
+}
+
+// buildIdentityProvider elige quién acredita las identidades.
+//
+// En producción es obligatorio un proveedor real: sin él, nadie llega a nivel
+// verificado y ningún trayecto que lo exija admite pasajeros. Es deliberado:
+// preferimos no dar viajes a darlos sin saber quién viaja.
+func buildIdentityProvider(log *slog.Logger) trust.Provider {
+	// IDENTITY_PROVIDER_URL queda preparado para el proveedor real (Stripe
+	// Identity, Onfido, Persona). Mientras no exista, solo el modo manual.
+	if os.Getenv("ENV") == "production" {
+		log.Error("no hay proveedor de identidad configurado: " +
+			"nadie podrá acreditar su identidad y los trayectos que la exijan quedarán vacíos")
+	} else {
+		log.Warn("proveedor de identidad en modo manual: NO verifica nada, solo desarrollo")
+	}
+	return trust.NewManual(envString("PUBLIC_URL", "http://localhost:8080"))
 }
 
 // buildRouter elige el motor de rutas: OSRM si hay servidor configurado, con
