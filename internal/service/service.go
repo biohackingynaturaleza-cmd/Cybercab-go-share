@@ -1,0 +1,467 @@
+// Package service contiene la lógica de negocio: crear trayectos, buscarlos,
+// reservar plaza y repartir el coste.
+package service
+
+import (
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/geo"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/matching"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/pricing"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/store"
+)
+
+// DefaultSpeedKmh es la velocidad media que asumimos para estimar duraciones
+// mientras no consultemos un motor de rutas real.
+const DefaultSpeedKmh = 45
+
+// Config son los parámetros ajustables del servicio.
+type Config struct {
+	Tariff   pricing.Tariff
+	SpeedKmh float64
+	// Now permite fijar el reloj en las pruebas.
+	Now func() time.Time
+}
+
+// Service es el punto de entrada a la lógica de negocio.
+type Service struct {
+	store store.Store
+	cfg   Config
+}
+
+// New construye el servicio, rellenando los valores de configuración omitidos.
+func New(s store.Store, cfg Config) *Service {
+	if cfg.SpeedKmh <= 0 {
+		cfg.SpeedKmh = DefaultSpeedKmh
+	}
+	if cfg.Tariff == (pricing.Tariff{}) {
+		cfg.Tariff = pricing.DefaultTariff()
+	}
+	if cfg.Now == nil {
+		cfg.Now = func() time.Time { return time.Now().UTC() }
+	}
+	return &Service{store: s, cfg: cfg}
+}
+
+// Tariff expone la tarifa vigente.
+func (s *Service) Tariff() pricing.Tariff { return s.cfg.Tariff }
+
+// --- Usuarios ---
+
+// CreateUser da de alta a una persona.
+func (s *Service) CreateUser(name, email string) (*domain.User, error) {
+	if name == "" || email == "" {
+		return nil, fmt.Errorf("%w: nombre y email son obligatorios", domain.ErrValidation)
+	}
+	u := &domain.User{
+		ID:        newID("usr"),
+		Name:      name,
+		Email:     email,
+		Rating:    5,
+		CreatedAt: s.cfg.Now(),
+	}
+	if err := s.store.CreateUser(u); err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+// GetUser recupera un usuario por identificador.
+func (s *Service) GetUser(id string) (*domain.User, error) { return s.store.GetUser(id) }
+
+// --- Trayectos ---
+
+// NewTripInput son los datos para publicar un trayecto compartido.
+type NewTripInput struct {
+	HostID        string
+	Origin        domain.Place
+	Destination   domain.Place
+	Waypoints     []geo.Point
+	DepartureTime time.Time
+	Vehicle       domain.VehicleType
+	SeatsOffered  int
+	MaxDetourKm   float64
+	Notes         string
+}
+
+// CreateTrip publica un trayecto que otros podrán compartir.
+func (s *Service) CreateTrip(in NewTripInput) (*domain.Trip, error) {
+	if _, err := s.store.GetUser(in.HostID); err != nil {
+		return nil, fmt.Errorf("%w: el usuario que organiza no existe", domain.ErrValidation)
+	}
+	if in.Vehicle == "" {
+		in.Vehicle = domain.VehicleCybercab
+	}
+	if in.SeatsOffered == 0 {
+		// Por defecto se ofrece todo lo que no ocupa quien organiza.
+		in.SeatsOffered = in.Vehicle.Seats() - 1
+	}
+	if in.MaxDetourKm == 0 {
+		in.MaxDetourKm = matching.DefaultMaxWalkKm
+	}
+
+	route := make(geo.Route, 0, len(in.Waypoints)+2)
+	route = append(route, in.Origin.Point)
+	route = append(route, in.Waypoints...)
+	route = append(route, in.Destination.Point)
+
+	t := &domain.Trip{
+		ID:            newID("trip"),
+		HostID:        in.HostID,
+		Origin:        in.Origin,
+		Destination:   in.Destination,
+		Route:         route,
+		DepartureTime: in.DepartureTime.UTC(),
+		Vehicle:       in.Vehicle,
+		SeatsTotal:    in.SeatsOffered,
+		MaxDetourKm:   in.MaxDetourKm,
+		Notes:         in.Notes,
+		Status:        domain.TripOpen,
+		CreatedAt:     s.cfg.Now(),
+	}
+	if err := t.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %s", domain.ErrValidation, err)
+	}
+	if t.DepartureTime.Before(s.cfg.Now()) {
+		return nil, fmt.Errorf("%w: la salida ya ha pasado", domain.ErrValidation)
+	}
+	if err := s.store.CreateTrip(t); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// GetTrip recupera un trayecto.
+func (s *Service) GetTrip(id string) (*domain.Trip, error) { return s.store.GetTrip(id) }
+
+// ListOpenTrips devuelve los trayectos que admiten pasajeros.
+func (s *Service) ListOpenTrips() ([]*domain.Trip, error) { return s.store.ListOpenTrips() }
+
+// CancelTrip anula un trayecto y con él sus reservas activas.
+func (s *Service) CancelTrip(tripID, hostID string) (*domain.Trip, error) {
+	t, err := s.store.GetTrip(tripID)
+	if err != nil {
+		return nil, err
+	}
+	if t.HostID != hostID {
+		return nil, fmt.Errorf("%w: solo quien organiza puede anular el trayecto", domain.ErrValidation)
+	}
+	bookings, err := s.store.BookingsByTrip(tripID)
+	if err != nil {
+		return nil, err
+	}
+	for _, b := range bookings {
+		if b.Status.Active() {
+			b.Status = domain.BookingCancelled
+			if err := s.store.UpdateBooking(b); err != nil {
+				return nil, err
+			}
+		}
+	}
+	t.Status = domain.TripCancelled
+	t.SeatsTaken = 0
+	if err := s.store.UpdateTrip(t); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// Search busca trayectos compatibles con lo que pide un pasajero.
+func (s *Service) Search(q matching.Query) ([]matching.Match, error) {
+	trips, err := s.store.ListOpenTrips()
+	if err != nil {
+		return nil, err
+	}
+	occ := matching.Occupancy{}
+	for _, t := range trips {
+		o, err := s.occupants(t)
+		if err != nil {
+			return nil, err
+		}
+		occ[t.ID] = o
+	}
+	return matching.Find(trips, q, occ, s.cfg.Tariff, s.cfg.SpeedKmh), nil
+}
+
+// --- Reservas ---
+
+// ErrNoSeats indica que el trayecto ya no admite más pasajeros.
+var ErrNoSeats = errors.New("no quedan plazas libres")
+
+// BookInput son los datos de una petición de plaza.
+type BookInput struct {
+	TripID      string
+	PassengerID string
+	Pickup      domain.Place
+	Dropoff     domain.Place
+	Seats       int
+}
+
+// RequestBooking pide plaza en un trayecto para el tramo indicado.
+func (s *Service) RequestBooking(in BookInput) (*domain.Booking, error) {
+	if in.Seats < 1 {
+		in.Seats = 1
+	}
+	t, err := s.store.GetTrip(in.TripID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.store.GetUser(in.PassengerID); err != nil {
+		return nil, fmt.Errorf("%w: el pasajero no existe", domain.ErrValidation)
+	}
+	if in.PassengerID == t.HostID {
+		return nil, fmt.Errorf("%w: quien organiza ya viaja en el trayecto", domain.ErrValidation)
+	}
+	if !t.Bookable() {
+		return nil, ErrNoSeats
+	}
+	if t.SeatsAvailable() < in.Seats {
+		return nil, ErrNoSeats
+	}
+
+	pickup := t.Route.Project(in.Pickup.Point)
+	dropoff := t.Route.Project(in.Dropoff.Point)
+	maxOff := t.MaxDetourKm
+	if maxOff < matching.DefaultMaxWalkKm {
+		maxOff = matching.DefaultMaxWalkKm
+	}
+	if pickup.OffRouteKm > maxOff || dropoff.OffRouteKm > maxOff {
+		return nil, fmt.Errorf("%w: los puntos pedidos quedan fuera de la ruta", domain.ErrValidation)
+	}
+	if dropoff.AlongKm-pickup.AlongKm < matching.MinSharedKm {
+		return nil, fmt.Errorf("%w: la bajada debe ir por detrás de la recogida en el sentido de la marcha", domain.ErrValidation)
+	}
+
+	current, err := s.occupants(t)
+	if err != nil {
+		return nil, err
+	}
+	routeKm := t.DistanceKm()
+	price := pricing.EstimateSeatPrice(
+		s.tripCost(routeKm),
+		routeKm,
+		current,
+		pricing.Occupant{ID: "__candidate__", StartKm: pickup.AlongKm, EndKm: dropoff.AlongKm, Seats: in.Seats},
+		t.HostID,
+	)
+
+	b := &domain.Booking{
+		ID:             newID("bkg"),
+		TripID:         t.ID,
+		PassengerID:    in.PassengerID,
+		Pickup:         in.Pickup,
+		Dropoff:        in.Dropoff,
+		PickupAlongKm:  pickup.AlongKm,
+		DropoffAlongKm: dropoff.AlongKm,
+		Seats:          in.Seats,
+		PriceCents:     price,
+		Status:         domain.BookingPending,
+		CreatedAt:      s.cfg.Now(),
+	}
+	if err := s.store.CreateBooking(b); err != nil {
+		return nil, err
+	}
+
+	// La plaza queda retenida desde la petición para que dos personas no
+	// puedan reservar el mismo asiento mientras se decide.
+	t.SeatsTaken += in.Seats
+	if t.SeatsAvailable() == 0 {
+		t.Status = domain.TripFull
+	}
+	if err := s.store.UpdateTrip(t); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+// DecideBooking confirma o rechaza una petición. Solo quien organiza decide.
+func (s *Service) DecideBooking(bookingID, hostID string, accept bool) (*domain.Booking, error) {
+	b, err := s.store.GetBooking(bookingID)
+	if err != nil {
+		return nil, err
+	}
+	t, err := s.store.GetTrip(b.TripID)
+	if err != nil {
+		return nil, err
+	}
+	if t.HostID != hostID {
+		return nil, fmt.Errorf("%w: solo quien organiza puede decidir sobre la reserva", domain.ErrValidation)
+	}
+	if b.Status != domain.BookingPending {
+		return nil, fmt.Errorf("%w: la reserva ya está en estado %q", domain.ErrValidation, b.Status)
+	}
+
+	if accept {
+		b.Status = domain.BookingConfirmed
+		if err := s.store.UpdateBooking(b); err != nil {
+			return nil, err
+		}
+		return b, nil
+	}
+
+	b.Status = domain.BookingRejected
+	if err := s.store.UpdateBooking(b); err != nil {
+		return nil, err
+	}
+	return b, s.releaseSeats(t, b.Seats)
+}
+
+// CancelBooking permite al pasajero (o a quien organiza) anular una reserva.
+func (s *Service) CancelBooking(bookingID, actorID string) (*domain.Booking, error) {
+	b, err := s.store.GetBooking(bookingID)
+	if err != nil {
+		return nil, err
+	}
+	t, err := s.store.GetTrip(b.TripID)
+	if err != nil {
+		return nil, err
+	}
+	if actorID != b.PassengerID && actorID != t.HostID {
+		return nil, fmt.Errorf("%w: no puedes anular esta reserva", domain.ErrValidation)
+	}
+	if !b.Status.Active() {
+		return b, nil // anular dos veces no es un error
+	}
+	b.Status = domain.BookingCancelled
+	if err := s.store.UpdateBooking(b); err != nil {
+		return nil, err
+	}
+	return b, s.releaseSeats(t, b.Seats)
+}
+
+// BookingsByTrip lista las reservas de un trayecto.
+func (s *Service) BookingsByTrip(tripID string) ([]*domain.Booking, error) {
+	return s.store.BookingsByTrip(tripID)
+}
+
+// BookingsByPassenger lista las reservas de un pasajero.
+func (s *Service) BookingsByPassenger(userID string) ([]*domain.Booking, error) {
+	return s.store.BookingsByPassenger(userID)
+}
+
+// --- Reparto del coste ---
+
+// FareShare es lo que paga una persona del trayecto.
+type FareShare struct {
+	UserID      string  `json:"user_id"`
+	Role        string  `json:"role"` // "host" o "passenger"
+	FromKm      float64 `json:"from_km"`
+	ToKm        float64 `json:"to_km"`
+	Seats       int     `json:"seats"`
+	AmountCents int64   `json:"amount_cents"`
+}
+
+// FareBreakdown es el desglose completo del coste de un trayecto.
+type FareBreakdown struct {
+	TripID      string  `json:"trip_id"`
+	DistanceKm  float64 `json:"distance_km"`
+	DurationMin float64 `json:"duration_min"`
+	TotalCents  int64   `json:"total_cents"`
+	// SoloCostCents es lo que le costaría a quien organiza ir sin compartir:
+	// la diferencia con su parte es el ahorro de usar la app.
+	SoloCostCents int64       `json:"solo_cost_cents"`
+	Shares        []FareShare `json:"shares"`
+}
+
+// FareBreakdownFor calcula cómo se reparte el coste de un trayecto entre quien
+// lo organiza y las reservas vivas.
+func (s *Service) FareBreakdownFor(tripID string) (*FareBreakdown, error) {
+	t, err := s.store.GetTrip(tripID)
+	if err != nil {
+		return nil, err
+	}
+	bookings, err := s.store.BookingsByTrip(tripID)
+	if err != nil {
+		return nil, err
+	}
+
+	routeKm := t.DistanceKm()
+	total := s.tripCost(routeKm)
+
+	occupants := []pricing.Occupant{{ID: t.HostID, StartKm: 0, EndKm: routeKm, Seats: 1}}
+	active := make([]*domain.Booking, 0, len(bookings))
+	for _, b := range bookings {
+		if !b.Status.Active() {
+			continue
+		}
+		active = append(active, b)
+		occupants = append(occupants, pricing.Occupant{
+			ID:      b.PassengerID,
+			StartKm: b.PickupAlongKm,
+			EndKm:   b.DropoffAlongKm,
+			Seats:   b.Seats,
+		})
+	}
+
+	amounts := pricing.SplitFare(total, routeKm, occupants, t.HostID)
+
+	shares := []FareShare{{
+		UserID:      t.HostID,
+		Role:        "host",
+		FromKm:      0,
+		ToKm:        routeKm,
+		Seats:       1,
+		AmountCents: amounts[t.HostID],
+	}}
+	for _, b := range active {
+		shares = append(shares, FareShare{
+			UserID:      b.PassengerID,
+			Role:        "passenger",
+			FromKm:      b.PickupAlongKm,
+			ToKm:        b.DropoffAlongKm,
+			Seats:       b.Seats,
+			AmountCents: amounts[b.PassengerID],
+		})
+	}
+
+	return &FareBreakdown{
+		TripID:        t.ID,
+		DistanceKm:    routeKm,
+		DurationMin:   routeKm / s.cfg.SpeedKmh * 60,
+		TotalCents:    total,
+		SoloCostCents: total,
+		Shares:        shares,
+	}, nil
+}
+
+// --- Auxiliares ---
+
+func (s *Service) tripCost(routeKm float64) int64 {
+	return s.cfg.Tariff.TripCostCents(routeKm, routeKm/s.cfg.SpeedKmh*60)
+}
+
+// occupants devuelve quién va a bordo del trayecto: quien organiza durante todo
+// el recorrido y cada reserva viva en su tramo.
+func (s *Service) occupants(t *domain.Trip) ([]pricing.Occupant, error) {
+	bookings, err := s.store.BookingsByTrip(t.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := []pricing.Occupant{{ID: t.HostID, StartKm: 0, EndKm: t.DistanceKm(), Seats: 1}}
+	for _, b := range bookings {
+		if b.Status.Active() {
+			out = append(out, pricing.Occupant{
+				ID:      b.PassengerID,
+				StartKm: b.PickupAlongKm,
+				EndKm:   b.DropoffAlongKm,
+				Seats:   b.Seats,
+			})
+		}
+	}
+	return out, nil
+}
+
+// releaseSeats devuelve plazas al trayecto tras un rechazo o una anulación.
+func (s *Service) releaseSeats(t *domain.Trip, seats int) error {
+	t.SeatsTaken -= seats
+	if t.SeatsTaken < 0 {
+		t.SeatsTaken = 0
+	}
+	if t.Status == domain.TripFull && t.SeatsAvailable() > 0 {
+		t.Status = domain.TripOpen
+	}
+	return s.store.UpdateTrip(t)
+}

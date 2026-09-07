@@ -1,0 +1,12 @@
+# Binarios compilados
+/bin/
+/server
+*.exe
+
+# Cobertura y perfiles
+*.out
+*.prof
+
+# Entorno local
+.env
+.DS_Store

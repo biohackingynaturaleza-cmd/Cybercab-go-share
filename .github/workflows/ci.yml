@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+
+      - name: Comprobar formato
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Estos ficheros no están formateados:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Análisis estático
+        run: go vet ./...
+
+      - name: Pruebas
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - name: Cobertura
+        run: go tool cover -func=coverage.out | tail -1
+
+      - name: Compilar
+        run: go build ./...
