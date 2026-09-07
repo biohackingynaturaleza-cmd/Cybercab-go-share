@@ -58,14 +58,20 @@ Austin. Aeropuerto sí, otra ciudad no.
 La fuga no está en la comisión, está en **cobrar 40 veces al mes en vez de una**.
 Acumulando los viajes y cobrando periódicamente, con la misma comisión del 20 %:
 
-| Frecuencia de cobro | Neto mensual (40 viajes) |
-|---|---|
-| Por viaje | 10,00 $ |
-| Semanal | ~17 $ |
-| **Mensual** | **21,81 $** |
+Medido sobre la implementación real (40 viajes, comisión bruta de 26,80 $):
 
-**2,2 veces más ingreso sin tocar el precio ni el producto.** Es una decisión de
-ingeniería, no de modelo de negocio, y hay que tomarla antes que ninguna otra.
+| Frecuencia de cobro | Coste del procesador | **Ingreso neto** |
+|---|---|---|
+| Por viaje | 26,80 $ | **0,00 $** |
+| **Mensual, compensando saldos** | 5,24 $ | **21,56 $** |
+
+**Cobrar viaje a viaje no deja nada.** Ni poco: cero. La primera estimación se
+quedó corta porque solo contaba el cobro al pasajero; cada viaje exige *además*
+un pago a quien organiza, con su propia comisión fija. Entre las dos se llevan
+la comisión entera.
+
+Agrupar no es una optimización. Es la diferencia entre tener ingresos y no
+tenerlos.
 
 > Consecuencia de diseño: hace falta acumular saldo pendiente por usuario y
 > liquidarlo periódicamente. Sin monedero propio — el saldo es una cuenta
@@ -107,9 +113,13 @@ alta antes de invertir, no después.
 
 Por orden de lo que yo haría:
 
-### a) Cobro agrupado — hacerlo ya
-2,2× de ingreso, cero cambios de producto, cero riesgo. Es la única decisión que
-se toma con independencia de todo lo demás.
+### a) Cobro agrupado — hecho
+Implementado en `internal/billing`. Sin él no hay ingresos en absoluto.
+
+Además de agrupar, **compensa saldos**: quien comparte a diario alterna entre
+organizar y viajar, así que la mayor parte del dinero se cancela sola y ni
+siquiera llega a moverse. Cada movimiento evitado es una comisión que no se
+paga.
 
 ### b) Empresas, no consumidores — aquí está el dinero
 Las empresas de Austin ya subvencionan el desplazamiento de sus empleados, y el
@@ -163,8 +173,8 @@ gastos compartidos y convertiría el servicio en transporte comercial.
 | | |
 |---|---|
 | Valor creado por viaje compartido | **7,49 $** |
-| Capturado con comisión por viaje | 0,25 $ |
-| Capturado con comisión agrupada | 0,55 $ equivalentes |
+| Capturado cobrando viaje a viaje | **0,00 $** |
+| Capturado agrupando y compensando | 0,54 $ |
 | Mercado total hoy (20 vehículos) | **~750 $/mes** |
 | Dónde está el negocio | Empresas + protección + acuerdo con Tesla |
 | Cuándo es un negocio | Cuando la flota pase de 20 a varios cientos |

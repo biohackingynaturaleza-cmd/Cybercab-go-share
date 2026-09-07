@@ -31,6 +31,10 @@ type Config struct {
 	Tokens *auth.TokenIssuer
 	// Router calcula las rutas de los trayectos. Por defecto, línea recta.
 	Router routing.Router
+	// ComisionBps es la comisión de servicio en puntos básicos. La paga el
+	// pasajero y es ingreso de la plataforma: no entra en el reparto, así que
+	// quien organiza sigue sin ganar dinero.
+	ComisionBps int64
 	// Identidad verifica quién es cada persona. Sin él no se pueden acreditar
 	// identidades, y ningún trayecto que exija nivel verificado admitirá a
 	// nadie: es deliberado, preferimos no dar viajes a darlos sin verificar.

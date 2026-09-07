@@ -39,6 +39,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	identidad := buildIdentityProvider(log)
+
 	db, closeDB, err := buildStore(context.Background(), log)
 	if err != nil {
 		log.Error("no se pudo preparar el almacén", "err", err)
@@ -51,7 +53,7 @@ func main() {
 		SpeedKmh:  speed,
 		Tokens:    tokens,
 		Router:    buildRouter(log, speed),
-		Identidad: buildIdentityProvider(log),
+		Identidad: identidad,
 	})
 
 	if os.Getenv("SEED_DEMO") == "1" {
@@ -65,7 +67,7 @@ func main() {
 	addr := ":" + envString("PORT", "8080")
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           api.NewServer(svc, tokens, log),
+		Handler:           api.NewServer(svc, tokens, log, devOptions(identidad)...),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -158,6 +160,18 @@ func buildIdentityProvider(log *slog.Logger) trust.Provider {
 
 // buildRouter elige el motor de rutas: OSRM si hay servidor configurado, con
 // respaldo en línea recta para que un fallo del proveedor no tumbe la app.
+// devOptions activa los atajos de desarrollo. En producción devuelve nada: el
+// endpoint que resuelve verificaciones a mano no debe existir siquiera.
+func devOptions(identidad trust.Provider) []api.Option {
+	if os.Getenv("ENV") == "production" {
+		return nil
+	}
+	if m, ok := identidad.(*trust.Manual); ok {
+		return []api.Option{api.WithDevIdentityResolver(m)}
+	}
+	return nil
+}
+
 func buildRouter(log *slog.Logger, speedKmh float64) routing.Router {
 	backup := routing.NewStraightLine(speedKmh)
 

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/billing"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/trust"
 )
@@ -59,6 +60,11 @@ type Store interface {
 	GetCheckByRef(providerRef string) (*trust.Check, error)
 	ChecksByUser(userID string) ([]trust.Check, error)
 
+	// Libro de apuntes
+	CreateEntries(entries []billing.Entry) error
+	PendingEntries() ([]billing.Entry, error)
+	MarkSettled(entryIDs []string, settlementID string) error
+
 	// Bloqueos entre personas
 	CreateBlock(blockerID, blockedID string) error
 	DeleteBlock(blockerID, blockedID string) error
@@ -78,6 +84,7 @@ type Memory struct {
 	trips    map[string]*domain.Trip
 	bookings map[string]*domain.Booking
 	checks   map[string]*trust.Check
+	entries  map[string]*billing.Entry
 	// blocks son pares "bloqueador|bloqueado".
 	blocks map[string]bool
 	// tripOrder preserva el orden de alta para que los listados sean estables.
@@ -92,6 +99,7 @@ func NewMemory() *Memory {
 		trips:    map[string]*domain.Trip{},
 		bookings: map[string]*domain.Booking{},
 		checks:   map[string]*trust.Check{},
+		entries:  map[string]*billing.Entry{},
 		blocks:   map[string]bool{},
 	}
 }
@@ -375,4 +383,67 @@ func (m *Memory) BlockedPairs(userID string) (map[string]bool, error) {
 		}
 	}
 	return out, nil
+}
+
+// --- Libro de apuntes ---
+
+// ErrApuntesDuplicados se devuelve al escribir apuntes que ya existen: es lo
+// que impide cobrar dos veces por completar el mismo viaje.
+var ErrApuntesDuplicados = errors.New("esos apuntes ya están en el libro")
+
+// CreateEntries escribe apuntes. O entran todos o no entra ninguno: unos
+// apuntes a medias dejarían una deuda sin su comisión, o al revés.
+func (m *Memory) CreateEntries(entries []billing.Entry) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, e := range entries {
+		if err := e.Validate(); err != nil {
+			return err
+		}
+		if _, ok := m.entries[e.ID]; ok {
+			return ErrApuntesDuplicados
+		}
+		if e.BookingID != "" {
+			for _, ya := range m.entries {
+				if ya.BookingID == e.BookingID && ya.Kind == e.Kind {
+					return ErrApuntesDuplicados
+				}
+			}
+		}
+	}
+	for _, e := range entries {
+		cp := e
+		m.entries[e.ID] = &cp
+	}
+	return nil
+}
+
+func (m *Memory) PendingEntries() ([]billing.Entry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []billing.Entry
+	for _, e := range m.entries {
+		if e.Pendiente() {
+			out = append(out, *e)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+// MarkSettled marca los apuntes como liquidados. Solo marca los que siguen
+// pendientes: si otro cierre se adelantó, no se pisa su identificador.
+func (m *Memory) MarkSettled(entryIDs []string, settlementID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, id := range entryIDs {
+		e, ok := m.entries[id]
+		if !ok {
+			return ErrNotFound
+		}
+		if e.Pendiente() {
+			e.SettlementID = settlementID
+		}
+	}
+	return nil
 }

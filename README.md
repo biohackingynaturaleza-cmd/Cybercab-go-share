@@ -204,6 +204,7 @@ internal/pricing/    tarifa estimada y reparto del coste por tramos
 internal/routing/    rutas reales por carretera (OSRM) con respaldo
 internal/matching/   qué trayectos encajan con una búsqueda, y en qué orden
 internal/fleet/      frontera con la flota de robotaxis
+internal/billing/    libro de apuntes, compensación y liquidación
 internal/store/      persistencia (memoria o Postgres+PostGIS)
 internal/service/    lógica de negocio
 internal/api/        capa HTTP
@@ -231,6 +232,31 @@ rutas, de proveedor de identidad o de flota es implementar una interfaz.
 | `AVG_SPEED_KMH` | `45` | Velocidad media de respaldo |
 
 > Las tarifas son una **estimación de mercado**, no precios oficiales de Tesla.
+
+## Cómo se cobra
+
+No viaje a viaje. Cobrar cada trayecto por separado exige un cargo al pasajero y
+un pago a quien organiza, y entre las dos comisiones fijas del procesador se
+llevan **el 100 %** de la comisión de servicio: el ingreso neto sería cero.
+
+En su lugar, completar un viaje solo **anota** en el libro lo que cada cual debe.
+Una vez por periodo se liquida: se compensan los saldos —quien comparte a diario
+alterna entre organizar y viajar, así que buena parte del dinero se cancela
+sola— y se produce **una sola instrucción de cobro o pago por persona**. Sobre
+40 viajes al mes eso pasa de 0,00 $ netos a 21,56 $.
+
+Dos propiedades que el código garantiza:
+
+- **Lo que se cobra menos lo que se paga es exactamente nuestra comisión.** Si
+  esa igualdad se rompiera, estaríamos perdiendo dinero de alguien o
+  inventándolo. Se comprueba antes de devolver la liquidación, no después de
+  ejecutarla.
+- **No hay monedero.** Lo que se guarda son cuentas pendientes, no fondos
+  custodiados. La app produce instrucciones para un procesador ya licenciado;
+  nunca retiene dinero. Es lo que la mantiene fuera de la licencia de transmisor
+  de dinero.
+
+Ver [`docs/modelo-de-negocio.md`](docs/modelo-de-negocio.md).
 
 ## Lo que falta
 

@@ -22,14 +22,20 @@ import (
 type Server struct {
 	svc *service.Service
 	log *slog.Logger
+	// devIdentidad solo está presente en desarrollo: permite resolver
+	// verificaciones a mano. Ver WithDevIdentityResolver.
+	devIdentidad *trust.Manual
 }
 
 // NewServer construye el manejador HTTP con todas las rutas registradas.
 //
 // Las rutas que actúan en nombre de alguien exigen un token: la identidad sale
 // siempre del token verificado, nunca del cuerpo de la petición.
-func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger) http.Handler {
+func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger, opts ...Option) http.Handler {
 	s := &Server{svc: svc, log: log}
+	for _, opt := range opts {
+		opt(s)
+	}
 	requireAuth := auth.Require(verifier, unauthorized)
 
 	// protegida envuelve un manejador para que solo lo alcance quien va identificado.
@@ -66,12 +72,22 @@ func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger) h
 	mux.Handle("GET /api/v1/trips/{id}/bookings", protegida(s.listTripBookings))
 	mux.Handle("POST /api/v1/trips/{id}/bookings", protegida(s.createBooking))
 
+	// Facturación
+	mux.Handle("POST /api/v1/trips/{id}/completar", protegida(s.completarViaje))
+	mux.Handle("GET /api/v1/me/apuntes", protegida(s.misApuntes))
+	mux.Handle("GET /api/v1/facturacion/ahorro", protegida(s.ahorroDeAgrupar))
+
 	// Reservas
 	mux.Handle("POST /api/v1/bookings/{id}/decision", protegida(s.decideBooking))
 	mux.Handle("POST /api/v1/bookings/{id}/cancel", protegida(s.cancelBooking))
 
 	// La búsqueda es pública, pero si trae token se filtra por bloqueos.
 	mux.Handle("POST /api/v1/search", auth.Optional(verifier)(http.HandlerFunc(s.search)))
+
+	if s.devIdentidad != nil {
+		log.Warn("endpoint de desarrollo activo: /api/v1/dev/verificaciones/{ref}/resolver")
+		mux.Handle("POST /api/v1/dev/verificaciones/{ref}/resolver", protegida(s.devResolverVerificacion))
+	}
 
 	return withLogging(log, mux)
 }
@@ -436,6 +452,8 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrComprobacionEnCurso):
 		writeProblem(w, http.StatusConflict, err.Error())
 	case errors.Is(err, store.ErrEmailEnUso):
+		writeProblem(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrViajeNoCompletable), errors.Is(err, store.ErrApuntesDuplicados):
 		writeProblem(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrNoSeats):
 		writeProblem(w, http.StatusConflict, err.Error())
