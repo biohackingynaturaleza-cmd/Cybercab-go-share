@@ -370,3 +370,83 @@ func TestNoTePuedesBloquearATiMismo(t *testing.T) {
 		t.Fatalf("error = %v, esperaba un error de validación", err)
 	}
 }
+
+// --- Reglas que vienen de fuera del código ---
+
+func TestNoSePuedeAceptarSinAsumirLaResponsabilidad(t *testing.T) {
+	// Los términos del robotaxi hacen a quien organiza responsable de la
+	// conducta de quien deja subir. Aceptar sin saberlo sería ocultarle una
+	// obligación real frente a la flota.
+	e := nuevoEscenario(t, domain.VehicleModelY, trust.LevelNuevo)
+	acreditar(t, e.svc, e.identidad, e.pasajero.ID, trust.LevelVerificado)
+	b, err := e.reservar()
+	if err != nil {
+		t.Fatalf("RequestBooking: %v", err)
+	}
+
+	_, err = e.svc.DecideBooking(DecisionInput{
+		BookingID: b.ID, HostID: e.host.ID, Accept: true,
+		AceptaResponsabilidad: false,
+	})
+	if !errors.Is(err, ErrResponsabilidadNoAceptada) {
+		t.Fatalf("error = %v, esperaba ErrResponsabilidadNoAceptada", err)
+	}
+
+	// La reserva sigue pendiente: no se ha aceptado a medias.
+	sigue, _ := e.svc.BookingsByTrip(e.trip.ID)
+	if sigue[0].Status != domain.BookingPending {
+		t.Fatalf("estado = %q, esperaba que siguiera pendiente", sigue[0].Status)
+	}
+}
+
+func TestRechazarNoExigeAsumirNada(t *testing.T) {
+	// Solo aceptar a alguien conlleva responsabilidad; decir que no, no.
+	e := nuevoEscenario(t, domain.VehicleModelY, trust.LevelNuevo)
+	acreditar(t, e.svc, e.identidad, e.pasajero.ID, trust.LevelVerificado)
+	b, _ := e.reservar()
+
+	rechazada, err := e.svc.DecideBooking(DecisionInput{
+		BookingID: b.ID, HostID: e.host.ID, Accept: false,
+	})
+	if err != nil {
+		t.Fatalf("DecideBooking(rechazo): %v", err)
+	}
+	if rechazada.Status != domain.BookingRejected {
+		t.Fatalf("estado = %q, esperaba rejected", rechazada.Status)
+	}
+}
+
+func TestNingunRepartoDaBeneficioAQuienOrganiza(t *testing.T) {
+	// La propiedad de la que depende que esto sea gasto compartido y no
+	// transporte comercial: quien organiza nunca recauda más de lo que cuesta
+	// el viaje. Se comprueba sobre el desglose real del servicio.
+	e := nuevoEscenario(t, domain.VehicleModelY, trust.LevelNuevo)
+	acreditar(t, e.svc, e.identidad, e.pasajero.ID, trust.LevelVerificado)
+	if _, err := e.reservar(); err != nil {
+		t.Fatalf("RequestBooking: %v", err)
+	}
+
+	fb, err := e.svc.FareBreakdownFor(e.trip.ID)
+	if err != nil {
+		t.Fatalf("FareBreakdownFor: %v", err)
+	}
+
+	var recaudadoPorLosDemas, totalRepartido int64
+	for _, s := range fb.Shares {
+		totalRepartido += s.AmountCents
+		if s.UserID != e.host.ID {
+			recaudadoPorLosDemas += s.AmountCents
+		}
+	}
+	if totalRepartido != fb.TotalCents {
+		t.Fatalf("el reparto suma %d y el coste es %d", totalRepartido, fb.TotalCents)
+	}
+	if recaudadoPorLosDemas > fb.TotalCents {
+		t.Fatalf("los pasajeros aportan %d sobre un coste de %d: eso sería beneficio",
+			recaudadoPorLosDemas, fb.TotalCents)
+	}
+	// Y la parte de quien organiza nunca es negativa: no cobra, comparte.
+	if fb.Shares[0].AmountCents < 0 {
+		t.Fatalf("quien organiza cobraría %d", -fb.Shares[0].AmountCents)
+	}
+}

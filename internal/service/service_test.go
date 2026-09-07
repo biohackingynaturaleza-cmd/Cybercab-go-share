@@ -179,7 +179,7 @@ func TestFlujoCompletoDeReserva(t *testing.T) {
 		t.Fatalf("plazas ocupadas = %d, esperaba 1", trip.SeatsTaken)
 	}
 
-	confirmed, err := f.svc.DecideBooking(b.ID, f.host.ID, true)
+	confirmed, err := f.svc.DecideBooking(DecisionInput{BookingID: b.ID, HostID: f.host.ID, Accept: true, AceptaResponsabilidad: true})
 	if err != nil {
 		t.Fatalf("DecideBooking: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestRechazarUnaReservaLiberaLaPlaza(t *testing.T) {
 		t.Fatalf("estado del trayecto = %q, esperaba full", trip.Status)
 	}
 
-	if _, err := f.svc.DecideBooking(b.ID, f.host.ID, false); err != nil {
+	if _, err := f.svc.DecideBooking(DecisionInput{BookingID: b.ID, HostID: f.host.ID, Accept: false, AceptaResponsabilidad: true}); err != nil {
 		t.Fatalf("DecideBooking(rechazo): %v", err)
 	}
 
@@ -269,7 +269,7 @@ func TestSoloQuienOrganizaDecideSobreLaReserva(t *testing.T) {
 		Pickup: riverside, Dropoff: airport,
 	})
 
-	if _, err := f.svc.DecideBooking(b.ID, f.rider.ID, true); !errors.Is(err, ErrNoAutorizado) {
+	if _, err := f.svc.DecideBooking(DecisionInput{BookingID: b.ID, HostID: f.rider.ID, Accept: true, AceptaResponsabilidad: true}); !errors.Is(err, ErrNoAutorizado) {
 		t.Fatalf("error = %v, esperaba ErrNoAutorizado", err)
 	}
 }

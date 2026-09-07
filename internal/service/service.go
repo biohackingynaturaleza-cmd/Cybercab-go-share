@@ -411,9 +411,34 @@ func (s *Service) RequestBooking(in BookInput) (*domain.Booking, error) {
 	return b, nil
 }
 
+// DecisionInput es la decisión de quien organiza sobre una petición de plaza.
+type DecisionInput struct {
+	BookingID string
+	HostID    string
+	Accept    bool
+	// AceptaResponsabilidad tiene que ser cierto para aceptar a alguien.
+	//
+	// Los términos del servicio de robotaxi hacen a quien pide el viaje
+	// "plenamente responsable de la conducta de cualquier otra persona a la
+	// que permita entrar en el vehículo". Quien acepta a un desconocido está
+	// asumiendo esa responsabilidad, y dejar que lo haga sin saberlo sería
+	// ocultarle una obligación real frente a Tesla.
+	AceptaResponsabilidad bool
+}
+
+// ErrResponsabilidadNoAceptada se devuelve al aceptar a alguien sin asumir la
+// responsabilidad que imponen los términos de la flota.
+var ErrResponsabilidadNoAceptada = errors.New(
+	"para aceptar a alguien tienes que asumir que respondes de su conducta dentro del vehículo")
+
+// AvisoDeResponsabilidad es el texto que hay que mostrar antes de aceptar.
+const AvisoDeResponsabilidad = "Los términos del robotaxi te hacen responsable de la conducta " +
+	"de quien dejes subir al vehículo, incluidos los daños que cause. " +
+	"Revisa su perfil de confianza antes de aceptar."
+
 // DecideBooking confirma o rechaza una petición. Solo quien organiza decide.
-func (s *Service) DecideBooking(bookingID, hostID string, accept bool) (*domain.Booking, error) {
-	b, err := s.store.GetBooking(bookingID)
+func (s *Service) DecideBooking(in DecisionInput) (*domain.Booking, error) {
+	b, err := s.store.GetBooking(in.BookingID)
 	if err != nil {
 		return nil, err
 	}
@@ -421,14 +446,18 @@ func (s *Service) DecideBooking(bookingID, hostID string, accept bool) (*domain.
 	if err != nil {
 		return nil, err
 	}
-	if t.HostID != hostID {
+	if t.HostID != in.HostID {
 		return nil, fmt.Errorf("%w: solo quien organiza puede decidir sobre la reserva", ErrNoAutorizado)
 	}
 	if b.Status != domain.BookingPending {
 		return nil, fmt.Errorf("%w: la reserva ya está en estado %q", domain.ErrValidation, b.Status)
 	}
+	// Rechazar no exige asumir nada; aceptar, sí.
+	if in.Accept && !in.AceptaResponsabilidad {
+		return nil, ErrResponsabilidadNoAceptada
+	}
 
-	if accept {
+	if accept := in.Accept; accept {
 		b.Status = domain.BookingConfirmed
 		if err := s.store.UpdateBooking(b); err != nil {
 			return nil, err
@@ -559,6 +588,14 @@ func (s *Service) FareBreakdownFor(tripID string) (*FareBreakdown, error) {
 	}
 
 	amounts := pricing.SplitFare(total, routeKm, occupants, t.HostID)
+
+	// La comprobación no es decorativa: si quien organiza ganara dinero, el
+	// servicio dejaría de ser gasto compartido y pasaría a ser transporte
+	// comercial sujeto a permiso estatal. Antes de enseñar un reparto que
+	// rompiera esa línea, preferimos fallar.
+	if err := pricing.VerificarSinLucro(total, amounts, t.HostID); err != nil {
+		return nil, err
+	}
 
 	shares := []FareShare{{
 		UserID:      t.HostID,

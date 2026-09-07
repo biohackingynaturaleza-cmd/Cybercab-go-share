@@ -264,6 +264,10 @@ func (s *Server) createBooking(w http.ResponseWriter, r *http.Request) {
 
 type decisionRequest struct {
 	Accept bool `json:"accept"`
+	// AceptaResponsabilidad refleja que quien organiza ha visto el aviso: los
+	// términos del robotaxi le hacen responder de la conducta de quien deja
+	// subir al vehículo.
+	AceptaResponsabilidad bool `json:"acepta_responsabilidad"`
 }
 
 func (s *Server) decideBooking(w http.ResponseWriter, r *http.Request) {
@@ -271,7 +275,12 @@ func (s *Server) decideBooking(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	b, err := s.svc.DecideBooking(r.PathValue("id"), actor(r), req.Accept)
+	b, err := s.svc.DecideBooking(service.DecisionInput{
+		BookingID:             r.PathValue("id"),
+		HostID:                actor(r),
+		Accept:                req.Accept,
+		AceptaResponsabilidad: req.AceptaResponsabilidad,
+	})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -339,26 +348,27 @@ func actor(r *http.Request) string {
 // tripView añade al trayecto los campos calculados que la interfaz necesita.
 func tripView(t *domain.Trip) map[string]any {
 	return map[string]any{
-		"id":              t.ID,
-		"host_id":         t.HostID,
-		"origin":          t.Origin,
-		"destination":     t.Destination,
-		"route":           t.Route,
-		"departure_time":  t.DepartureTime,
-		"vehicle":         t.Vehicle,
-		"seats_total":     t.SeatsTotal,
-		"seats_taken":     t.SeatsTaken,
-		"seats_available": t.SeatsAvailable(),
-		"distance_km":     round2(t.DistanceKm()),
-		"duration_min":    round2(t.DurationMin),
-		"route_source":    t.RouteSource,
-		"max_detour_km":   t.MaxDetourKm,
-		"nivel_exigido":   t.NivelExigido(),
-		"motivo_nivel":    trust.ExplicarSuelo(t.AforoTotal()),
-		"aforo_total":     t.AforoTotal(),
-		"notes":           t.Notes,
-		"status":          t.Status,
-		"created_at":      t.CreatedAt,
+		"id":                    t.ID,
+		"host_id":               t.HostID,
+		"origin":                t.Origin,
+		"destination":           t.Destination,
+		"route":                 t.Route,
+		"departure_time":        t.DepartureTime,
+		"vehicle":               t.Vehicle,
+		"seats_total":           t.SeatsTotal,
+		"seats_taken":           t.SeatsTaken,
+		"seats_available":       t.SeatsAvailable(),
+		"distance_km":           round2(t.DistanceKm()),
+		"duration_min":          round2(t.DurationMin),
+		"route_source":          t.RouteSource,
+		"max_detour_km":         t.MaxDetourKm,
+		"nivel_exigido":         t.NivelExigido(),
+		"motivo_nivel":          trust.ExplicarSuelo(t.AforoTotal()),
+		"aviso_responsabilidad": service.AvisoDeResponsabilidad,
+		"aforo_total":           t.AforoTotal(),
+		"notes":                 t.Notes,
+		"status":                t.Status,
+		"created_at":            t.CreatedAt,
 	}
 }
 
@@ -429,6 +439,11 @@ func writeError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrNoSeats):
 		writeProblem(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrResponsabilidadNoAceptada):
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+			"error": err.Error(),
+			"aviso": service.AvisoDeResponsabilidad,
+		})
 	case errors.Is(err, domain.ErrValidation):
 		writeProblem(w, http.StatusUnprocessableEntity, err.Error())
 	default:

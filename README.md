@@ -90,9 +90,14 @@ proveedor de traspaso **falla explícitamente** si se le pide un coche, en vez d
 devolver un viaje inventado que haría creer a la interfaz que hay un vehículo en
 camino.
 
-> Dos cosas que hay que resolver antes de operar de verdad: si los términos de
-> servicio de Tesla permiten compartir así un viaje, y qué implica en materia
-> regulatoria que la app liquide pagos entre personas.
+**Los términos de Tesla sí permiten compartir el viaje**, con dos condiciones
+que el producto ya cumple: quien pide el coche tiene que ir en él durante todo
+el trayecto, y responde de la conducta de quien deja subir. Esa segunda
+condición está implementada: no se puede aceptar a nadie sin asumirla
+explícitamente.
+
+Ver [`docs/viabilidad-legal.md`](docs/viabilidad-legal.md) para el análisis
+completo, incluidas las fuentes.
 
 ## Cómo se reparte el coste
 
@@ -111,6 +116,17 @@ Ejemplo real (10,8 km, coste estimado 10,88 $):
 Ana iba a pagar 10,88 $ sola. Los primeros 4,1 km los asume entera porque va
 sola; a partir de ahí, a medias. El reparto **siempre suma el total exacto** al
 céntimo (método del mayor resto), sin dinero perdido en el redondeo.
+
+### Quien organiza nunca gana dinero, y de eso depende la legalidad
+
+La ley de Texas excluye de la regulación del transporte comercial los acuerdos
+de gastos compartidos y aquellos en los que *"la cantidad recibida no excede el
+coste de proporcionar el viaje"*. Mientras nadie obtenga beneficio, este
+servicio no es una TNC y no necesita permiso estatal.
+
+Es decir: **la legalidad del producto depende de una propiedad del algoritmo de
+reparto**. Por eso no se deja al azar — `pricing.VerificarSinLucro` la comprueba
+en cada desglose y falla antes de enseñar un reparto que la rompiera.
 
 ## Cómo se decide que un viaje "queda de camino"
 

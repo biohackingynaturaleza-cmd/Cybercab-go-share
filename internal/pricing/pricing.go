@@ -3,6 +3,8 @@
 package pricing
 
 import (
+	"errors"
+	"fmt"
 	"math"
 	"sort"
 )
@@ -158,3 +160,41 @@ func seatsOf(o Occupant) int {
 }
 
 func clamp(v, lo, hi float64) float64 { return math.Min(hi, math.Max(lo, v)) }
+
+// ErrLucro indica que el reparto daría beneficio a quien organiza.
+var ErrLucro = errors.New("el reparto daría beneficio a quien organiza")
+
+// VerificarSinLucro comprueba que quien organiza no gana dinero con el viaje.
+//
+// No es un escrúpulo moral: es la línea que separa compartir gastos de prestar
+// un servicio de transporte. La ley de Texas excluye expresamente de la
+// regulación de las TNC los acuerdos de gastos compartidos y aquellos en los
+// que "la cantidad recibida no excede el coste de proporcionar el viaje"
+// (Tex. Occ. Code § 2402.001). En cuanto quien organiza gana algo, el servicio
+// pasa a ser transporte comercial y necesita permiso estatal.
+//
+// Por eso esta comprobación se ejecuta sobre cada reparto: la propiedad de la
+// que depende la legalidad del producto no puede quedar en manos de que nadie
+// toque el algoritmo por descuido.
+func VerificarSinLucro(totalCents int64, shares map[string]int64, hostID string) error {
+	var recaudado int64
+	for id, v := range shares {
+		if v < 0 {
+			return fmt.Errorf("%w: %s tiene una parte negativa (%d)", ErrLucro, id, v)
+		}
+		if id != hostID {
+			recaudado += v
+		}
+	}
+	// Lo que ponen los demás no puede superar el coste del viaje: si lo
+	// superara, la diferencia sería beneficio.
+	if recaudado > totalCents {
+		return fmt.Errorf("%w: los pasajeros aportan %d sobre un coste de %d",
+			ErrLucro, recaudado, totalCents)
+	}
+	// Y quien organiza tiene que poner algo o, como mucho, nada: nunca cobrar.
+	if resto := totalCents - recaudado; resto < 0 {
+		return fmt.Errorf("%w: quien organiza cobraría %d", ErrLucro, -resto)
+	}
+	return nil
+}

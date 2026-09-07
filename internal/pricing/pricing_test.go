@@ -1,6 +1,9 @@
 package pricing
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func sum(m map[string]int64) int64 {
 	var total int64
@@ -129,5 +132,73 @@ func TestSplitFareSinOcupantesNoPierdeDinero(t *testing.T) {
 	shares := SplitFare(1000, 10, nil, "ana")
 	if shares["ana"] != 1000 {
 		t.Fatalf("reparto = %v, esperaba todo a Ana", shares)
+	}
+}
+
+// --- La invariante de la que depende la legalidad ---
+
+func TestElRepartoNormalNuncaDaBeneficio(t *testing.T) {
+	// Cualquier reparto que salga de SplitFare tiene que pasar la comprobación:
+	// es lo que mantiene el servicio dentro de la excepción de gastos
+	// compartidos y fuera de la regulación del transporte comercial.
+	casos := []struct {
+		name      string
+		total     int64
+		routeKm   float64
+		occupants []Occupant
+	}{
+		{"todo el camino a medias", 1000, 10, []Occupant{
+			{ID: "host", StartKm: 0, EndKm: 10},
+			{ID: "b", StartKm: 0, EndKm: 10},
+		}},
+		{"tres pasajeros en tramos distintos", 4737, 23.4, []Occupant{
+			{ID: "host", StartKm: 0, EndKm: 23.4},
+			{ID: "b", StartKm: 1.7, EndKm: 19.2},
+			{ID: "c", StartKm: 8.1, EndKm: 23.4},
+			{ID: "d", StartKm: 12.5, EndKm: 14.9},
+		}},
+		{"el coche lleno todo el trayecto", 999, 5, []Occupant{
+			{ID: "host", StartKm: 0, EndKm: 5},
+			{ID: "b", StartKm: 0, EndKm: 5, Seats: 3},
+		}},
+	}
+	for _, tc := range casos {
+		t.Run(tc.name, func(t *testing.T) {
+			shares := SplitFare(tc.total, tc.routeKm, tc.occupants, "host")
+			if err := VerificarSinLucro(tc.total, shares, "host"); err != nil {
+				t.Fatalf("%v (reparto: %v)", err, shares)
+			}
+		})
+	}
+}
+
+func TestVerificarSinLucroDetectaElBeneficio(t *testing.T) {
+	casos := map[string]struct {
+		total  int64
+		shares map[string]int64
+	}{
+		"los pasajeros pagan más que el coste": {
+			1000, map[string]int64{"host": 0, "b": 700, "c": 700},
+		},
+		"quien organiza cobra": {
+			1000, map[string]int64{"host": -200, "b": 1200},
+		},
+		"una parte negativa": {
+			1000, map[string]int64{"host": 1100, "b": -100},
+		},
+	}
+	for name, tc := range casos {
+		if err := VerificarSinLucro(tc.total, tc.shares, "host"); !errors.Is(err, ErrLucro) {
+			t.Errorf("%s: error = %v, esperaba ErrLucro", name, err)
+		}
+	}
+}
+
+func TestQuienOrganizaPuedeAcabarPagandoCero(t *testing.T) {
+	// El caso límite legítimo: el coche va lleno y los demás cubren el coste
+	// entero. Quien organiza viaja gratis, pero no gana nada, así que sigue
+	// siendo gasto compartido.
+	if err := VerificarSinLucro(1000, map[string]int64{"host": 0, "b": 1000}, "host"); err != nil {
+		t.Fatalf("viajar gratis sin ganar nada es legítimo: %v", err)
 	}
 }

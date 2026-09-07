@@ -320,7 +320,7 @@ func TestRecorridoCompletoCentroAeropuerto(t *testing.T) {
 
 	var decided map[string]any
 	code = do(t, srv, http.MethodPost, "/api/v1/bookings/"+booking["id"].(string)+"/decision",
-		ana.Token, map[string]any{"accept": true}, &decided)
+		ana.Token, map[string]any{"accept": true, "acepta_responsabilidad": true}, &decided)
 	if code != http.StatusOK || decided["status"] != "confirmed" {
 		t.Fatalf("confirmación: código = %d, estado = %v", code, decided["status"])
 	}
@@ -368,7 +368,7 @@ func TestNadieMasPuedeDecidirSobreTuReserva(t *testing.T) {
 	}, &booking)
 
 	code := do(t, srv, http.MethodPost, "/api/v1/bookings/"+booking["id"].(string)+"/decision",
-		intrusa.Token, map[string]any{"accept": true}, nil)
+		intrusa.Token, map[string]any{"accept": true, "acepta_responsabilidad": true}, nil)
 	if code != http.StatusForbidden {
 		t.Fatalf("código = %d, esperaba 403", code)
 	}
