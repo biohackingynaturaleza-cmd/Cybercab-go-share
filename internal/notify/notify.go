@@ -48,6 +48,15 @@ const (
 	// SucesoContrasenaCambiada avisa de que la contraseña acaba de cambiar. Es
 	// el aviso que descubre un robo de cuenta.
 	SucesoContrasenaCambiada Suceso = "contrasena_cambiada"
+	// SucesoViajeCompartido le manda a un contacto de confianza el enlace del
+	// viaje que alguien acaba de reservar.
+	SucesoViajeCompartido Suceso = "viaje_compartido"
+	// SucesoAlertaDisparada avisa a los contactos de que alguien ha pulsado el
+	// botón de emergencia. Es el aviso más importante que manda esta app.
+	SucesoAlertaDisparada Suceso = "alerta_disparada"
+	// SucesoAlertaRetirada dice que era una falsa alarma. Va detrás del
+	// anterior siempre: un susto sin desmentir se queda puesto.
+	SucesoAlertaRetirada Suceso = "alerta_retirada"
 	// SucesoCodigoCorreo lleva el código que acredita el buzón.
 	SucesoCodigoCorreo Suceso = "codigo_correo"
 	// SucesoPideValoracion pide opinión sobre el viaje recién terminado.

@@ -23,6 +23,9 @@ const estado = {
   modo: 'buscar',
   resultados: [],
   pendientes: [],
+  contactos: [],
+  maxContactos: 3,
+  activos: [],
   seleccionado: null,
   mios: [],
   incidencias: [],
@@ -288,7 +291,10 @@ async function refrescar() {
   estado.perfil = perfil;
   estado.verificaciones = verif.verificaciones || [];
   estado.resumen = resumen;
-  await Promise.all([cargarMisTrayectos(), cargarIncidencias(), cargarPendientesDeValorar()]);
+  await Promise.all([
+    cargarMisTrayectos(), cargarIncidencias(), cargarPendientesDeValorar(),
+    cargarContactos(), cargarViajesActivos(),
+  ]);
 }
 
 /* ============ Confianza ============ */
@@ -1169,6 +1175,8 @@ function pintar() {
     pintarIncidencias();
     pintarValoraciones();
     pintarSuspension();
+    pintarContactos();
+    pintarViajeActivo();
     pintarMisTrayectos();
   } else {
     $('btn-entrar-cab').addEventListener('click', () => mostrarAcceso(false));
@@ -1431,6 +1439,278 @@ async function enviarDenuncia(ev) {
   }
 }
 
+/* ============ Seguridad ============ */
+
+/* Contactos de confianza. Sin ellos el botón de emergencia no tiene a quién
+   avisar, así que la tarjeta se enseña aunque la lista esté vacía. */
+function pintarContactos() {
+  const cs = estado.contactos || [];
+  $('contactos-caja').classList.remove('oculto');
+  $('contactos').innerHTML = cs.map((c) => `
+    <li>
+      <span><b>${escapar(c.nombre)}</b> <span class="correo">${escapar(c.email)}</span></span>
+      ${c.avisar_al_salir ? `<span class="avisa">${escapar(t('ctc.avisa'))}</span>` : ''}
+      <button class="quitar" data-quitar="${escapar(c.id)}"
+              aria-label="${escapar(t('ctc.quitar'))}">×</button>
+    </li>`).join('');
+
+  // Al llegar al tope el formulario desaparece: enseñar un formulario que va a
+  // fallar es hacer perder el tiempo.
+  const lleno = cs.length >= (estado.maxContactos || 3);
+  $('form-contacto').classList.toggle('oculto', lleno);
+
+  $('contactos').querySelectorAll('[data-quitar]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        await api('DELETE', `/api/v1/me/contactos/${b.dataset.quitar}`);
+        await cargarContactos();
+        pintarContactos();
+      } catch (e) { explicarError(e); b.disabled = false; }
+    }));
+}
+
+async function cargarContactos() {
+  try {
+    const r = await api('GET', '/api/v1/me/contactos');
+    estado.contactos = r.contactos || [];
+    estado.maxContactos = r.maximo || 3;
+  } catch {
+    estado.contactos = [];
+  }
+}
+
+async function anadirContacto(ev) {
+  ev.preventDefault();
+  const nombre = $('ctc-nombre').value.trim();
+  const email = $('ctc-email').value.trim();
+  if (!nombre || !email) {
+    toast(t('ctc.faltan.t'), parrafo(t('ctc.faltan.d')), 'error');
+    (nombre ? $('ctc-email') : $('ctc-nombre')).focus();
+    return;
+  }
+  const boton = $('ctc-anadir');
+  boton.disabled = true;
+  try {
+    await api('POST', '/api/v1/me/contactos', {
+      nombre, email, avisar_al_salir: $('ctc-avisar').checked,
+    });
+    $('ctc-nombre').value = ''; $('ctc-email').value = '';
+    await cargarContactos();
+    pintarContactos();
+    toast(t('ctc.hecho.t'), parrafo(t('ctc.hecho.d')), 'bien');
+  } catch (e) {
+    explicarError(e);
+  } finally {
+    boton.disabled = false;
+  }
+}
+
+/* ============ Viaje en curso ============ */
+
+async function cargarViajesActivos() {
+  try {
+    const r = await api('GET', '/api/v1/me/viajes-activos');
+    estado.activos = r.viajes || [];
+  } catch {
+    estado.activos = [];
+  }
+}
+
+function pintarViajeActivo() {
+  const vs = estado.activos || [];
+  $('viaje-activo').classList.toggle('oculto', !vs.length);
+  if (!vs.length) return;
+
+  $('activos').innerHTML = vs.map((v, i) => `
+    <div class="activo" data-viaje="${escapar(v.trip_id)}">
+      <div class="activo-ruta">${escapar(v.origen)} → ${escapar(v.destino)}</div>
+      <div class="activo-cuando">${escapar(fecha(new Date(v.salida)))} ·
+        ${escapar(t('papel.' + v.papel))}</div>
+      <div class="activo-acciones">
+        <button class="btn-2 btn-fino" data-compartir="${i}">${escapar(
+          t(v.compartido ? 'seg.otro' : 'seg.compartir'))}</button>
+        ${v.compartido ? `<button class="enlace" data-revocar="${escapar(v.trip_id)}"
+          style="font-size:12px">${escapar(t('seg.revocar'))}</button>` : ''}
+      </div>
+      <div class="enlace-seg oculto" data-caja-enlace="${i}">
+        <input readonly data-url="${i}" aria-label="${escapar(t('seg.enlace'))}">
+        <button class="btn-2 btn-fino" data-copiar="${i}">${escapar(t('seg.copiar'))}</button>
+      </div>
+      ${v.alerta
+        ? `<button class="alerta-viva" data-ver-alerta="${i}">⚠ ${escapar(t('alr.viva'))}</button>`
+        : botonSOS(i)}
+    </div>`).join('');
+
+  vs.forEach((v, i) => conectarViajeActivo(v, i));
+}
+
+function botonSOS(i) {
+  return `<button class="sos" data-sos="${i}"><i></i>
+    <span>${escapar(t('sos.boton'))}</span>
+    <small>${escapar(t('sos.pie'))}</small></button>`;
+}
+
+function conectarViajeActivo(v, i) {
+  const caja = $('activos').querySelector(`[data-viaje="${CSS.escape(v.trip_id)}"]`);
+  if (!caja) return;
+
+  caja.querySelector(`[data-compartir="${i}"]`).addEventListener('click', async (ev) => {
+    const boton = ev.currentTarget;
+    boton.disabled = true;
+    try {
+      const enlace = await api('POST', `/api/v1/trips/${v.trip_id}/compartir`);
+      const cajaEnlace = caja.querySelector(`[data-caja-enlace="${i}"]`);
+      cajaEnlace.classList.remove('oculto');
+      cajaEnlace.querySelector('input').value = enlace.url;
+      await cargarViajesActivos();
+    } catch (e) { explicarError(e); } finally { boton.disabled = false; }
+  });
+
+  const copiar = caja.querySelector(`[data-copiar="${i}"]`);
+  if (copiar) {
+    copiar.addEventListener('click', async () => {
+      const campo = caja.querySelector(`[data-url="${i}"]`);
+      campo.select();
+      try {
+        await navigator.clipboard.writeText(campo.value);
+        toast(t('seg.copiado'), '', 'bien');
+      } catch {
+        // Sin permiso de portapapeles queda seleccionado para copiarlo a mano.
+        toast(t('seg.copia.manual'), '', '');
+      }
+    });
+  }
+
+  const revocar = caja.querySelector('[data-revocar]');
+  if (revocar) {
+    revocar.addEventListener('click', async () => {
+      revocar.disabled = true;
+      try {
+        await api('POST', `/api/v1/trips/${revocar.dataset.revocar}/dejar-de-compartir`);
+        await cargarViajesActivos();
+        pintarViajeActivo();
+        toast(t('seg.revocado'), '', 'bien');
+      } catch (e) { explicarError(e); revocar.disabled = false; }
+    });
+  }
+
+  const verAlerta = caja.querySelector(`[data-ver-alerta="${i}"]`);
+  if (verAlerta) verAlerta.addEventListener('click', () => abrirAlerta(v.alerta, v));
+
+  const sos = caja.querySelector(`[data-sos="${i}"]`);
+  if (sos) conectarSOS(sos, v);
+}
+
+/* ============ El botón de emergencia ============ */
+
+/* Se mantiene pulsado. Un solo gesto —el que se puede hacer con la mano
+   temblando— y que no se dispara solo en el bolsillo. Un diálogo de "¿estás
+   seguro?" sería un paso más justo cuando no hay tiempo para pasos. */
+const RETENCION_SOS = 1500;
+
+function conectarSOS(boton, viaje) {
+  let temporizador = null;
+
+  const soltar = () => {
+    clearTimeout(temporizador);
+    temporizador = null;
+    boton.classList.remove('armado');
+  };
+  const apretar = (ev) => {
+    ev.preventDefault();
+    if (temporizador) return;
+    boton.classList.add('armado');
+    temporizador = setTimeout(() => { soltar(); dispararSOS(boton, viaje); }, RETENCION_SOS);
+  };
+
+  boton.addEventListener('pointerdown', apretar);
+  boton.addEventListener('pointerup', soltar);
+  boton.addEventListener('pointerleave', soltar);
+  boton.addEventListener('pointercancel', soltar);
+  // Con teclado no hay "mantener": la barra espaciadora repite pero Enter no.
+  // Quien navega con teclado dispara con Enter y confirma en el diálogo.
+  boton.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); dispararSOS(boton, viaje); }
+  });
+}
+
+/* posicionActual pide la ubicación sin bloquear. Si no llega en cinco segundos
+   —o no hay permiso— la alerta sale igual: lo que no puede pasar es que el
+   botón falle justo cuando hace falta. */
+function posicionActual() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) { resolve(null); return; }
+    let contestado = false;
+    const acabar = (v) => { if (!contestado) { contestado = true; resolve(v); } };
+    setTimeout(() => acabar(null), 5000);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => acabar({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => acabar(null),
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 30000 });
+  });
+}
+
+async function dispararSOS(boton, viaje) {
+  boton.disabled = true;
+  try {
+    const punto = await posicionActual();
+    const r = await api('POST', `/api/v1/trips/${viaje.trip_id}/emergencia`, {
+      lat: punto ? punto.lat : null,
+      lng: punto ? punto.lng : null,
+      nota: '',
+    });
+    abrirAlerta(r.alerta, viaje, r.telefono_emergencias, !!punto);
+    await cargarViajesActivos();
+    pintarViajeActivo();
+  } catch (e) {
+    explicarError(e);
+    boton.disabled = false;
+  }
+}
+
+let alertaAbierta = null;
+
+function abrirAlerta(alerta, viaje, telefono, conPosicion) {
+  alertaAbierta = alerta;
+  const tel = telefono || '911';
+  $('alr-telefono').textContent = tel;
+  $('alr-911').href = 'tel:' + tel;
+  $('alr-sub').textContent = t('alr.sub', { destino: viaje.destino });
+
+  const cuantos = (estado.contactos || []).length;
+  $('alr-hecho').innerHTML = [
+    cuantos ? t('alr.hecho.contactos', { n: cuantos }) : t('alr.hecho.sincontactos'),
+    t('alr.hecho.operaciones'),
+    conPosicion === false ? t('alr.hecho.sinposicion') : t('alr.hecho.posicion'),
+  ].map((x) => `<li>${escapar(x)}</li>`).join('');
+
+  $('modal-alerta').hidden = false;
+  $('alr-911').focus();
+}
+
+function cerrarAlerta() {
+  alertaAbierta = null;
+  $('modal-alerta').hidden = true;
+}
+
+async function falsaAlarma() {
+  if (!alertaAbierta) return;
+  const boton = $('alr-falsa');
+  boton.disabled = true;
+  try {
+    await api('POST', `/api/v1/alertas/${alertaAbierta.id}/retirar`);
+    cerrarAlerta();
+    toast(t('alr.retirada.t'), parrafo(t('alr.retirada.d')), 'bien');
+    await cargarViajesActivos();
+    pintarViajeActivo();
+  } catch (e) {
+    explicarError(e);
+  } finally {
+    boton.disabled = false;
+  }
+}
+
 /* ============ Arranque ============ */
 
 function horaPorDefecto() {
@@ -1468,6 +1748,9 @@ function conectar() {
   $('form-rec-cambiar').addEventListener('submit', cambiarContrasena);
   $('btn-aceptar-terminos').addEventListener('click', aceptarTerminos);
   $('form-denuncia').addEventListener('submit', enviarDenuncia);
+  $('form-contacto').addEventListener('submit', anadirContacto);
+  $('alr-cerrar').addEventListener('click', cerrarAlerta);
+  $('alr-falsa').addEventListener('click', falsaAlarma);
   $('den-cancelar').addEventListener('click', cerrarDenuncia);
   $('modal-denuncia').addEventListener('click', (e) => {
     if (e.target === $('modal-denuncia')) cerrarDenuncia();
@@ -1510,6 +1793,9 @@ function conectar() {
   // Escape cierra el acceso o la recuperación y vuelve a la portada.
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+    // El diálogo de la alerta no se cierra con Escape a propósito: perderlo
+    // de un tecleo en mitad de una emergencia es lo último que hace falta.
+    if (!$('modal-alerta').hidden) return;
     if (!$('modal-denuncia').hidden) { cerrarDenuncia(); return; }
     const abierto = !$('acceso').classList.contains('oculto') ||
       !$('recuperar').classList.contains('oculto');

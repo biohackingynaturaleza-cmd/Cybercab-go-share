@@ -1,0 +1,145 @@
+/* Página de seguimiento.
+ *
+ * La abre alguien que no usa esta app y que puede estar asustado. Todo lo que
+ * no sea "dónde está, con quién va y a quién llamo" sobra. Hoja aparte de la
+ * aplicación por lo mismo que las legales: aquí se lee de arriba abajo, no se
+ * maneja un mapa a pantalla completa. */
+
+:root {
+  --fondo:  #07090b;
+  --capa-1: #0e1216;
+  --capa-2: #151b21;
+  --borde:  #212a33;
+  --borde-2:#2e3a45;
+  --texto:  #eef3f7;
+  --suave:  #9aa9b7;
+  --tenue:  #5f6d7b;
+  --acento: #2fd4e8;
+  --acento-alto: #6ceaf8;
+  --acento-bajo: #0d3d45;
+  --dinero: #3ddc97;
+  --peligro: #ff6b78;
+  --peligro-bajo: #2a1015;
+  --n-nuevo: #6b7684;
+  --n-basico: #e0a53a;
+  --n-verificado: #3ddc97;
+  --n-veterano: #b49bff;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --r: 6px;
+  --r2: 10px;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--fondo); color: var(--texto);
+  font: 15px/1.55 var(--sans); -webkit-font-smoothing: antialiased;
+}
+:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; border-radius: 3px; }
+.oculto { display: none !important; }
+
+header { border-bottom: 1px solid var(--borde); }
+.barra {
+  max-width: 640px; margin: 0 auto; padding: 14px 20px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+.marca { font-weight: 650; letter-spacing: -.015em; text-decoration: none; color: var(--texto); }
+.marca b { color: var(--acento); font-weight: 650; }
+.idiomas { display: flex; border: 1px solid var(--borde); border-radius: var(--r); overflow: hidden; }
+.idiomas button {
+  background: none; border: 0; color: var(--tenue); cursor: pointer;
+  font: 600 11px/1 var(--mono); letter-spacing: .06em; padding: 7px 10px;
+}
+.idiomas button[aria-pressed="true"] { background: var(--acento-bajo); color: var(--acento); }
+
+main { max-width: 640px; margin: 0 auto; padding: 24px 20px 70px; }
+.cargando { color: var(--tenue); font: 13px var(--mono); }
+
+/* La alerta. Roja, arriba del todo, con el número de emergencias como el
+   elemento más grande de la página: si alguien llega aquí asustado, lo único
+   que tiene que encontrar sin pensar es a quién llamar. */
+.alerta {
+  background: var(--peligro-bajo); border: 1px solid var(--peligro);
+  border-radius: var(--r2); padding: 20px; margin-bottom: 20px;
+}
+.alerta h1 { margin: 0 0 6px; font-size: 21px; letter-spacing: -.015em; color: var(--peligro); }
+.alerta p { margin: 0 0 12px; color: #f6d3d6; font-size: 14px; }
+.alerta .nota {
+  background: rgba(0, 0, 0, .3); border-left: 3px solid var(--peligro);
+  padding: 10px 12px; border-radius: var(--r); font-style: italic;
+}
+.btn-911 {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  background: var(--peligro); color: #2a0007; text-decoration: none;
+  font: 700 19px/1 var(--sans); padding: 17px; border-radius: var(--r2);
+  margin-bottom: 12px;
+}
+.btn-911 b { font: 800 23px/1 var(--mono); letter-spacing: .04em; }
+.btn-911:hover { background: #ff8a94; }
+.letra-chica { font-size: 12.5px; color: var(--tenue); margin: 0; }
+.alerta .letra-chica { color: #c9a2a8; }
+
+.tarjeta {
+  background: var(--capa-2); border: 1px solid var(--borde);
+  border-radius: var(--r2); padding: 20px;
+}
+.tarjeta h2 { margin: 0 0 4px; font-size: 20px; letter-spacing: -.015em; }
+.tarjeta h3 {
+  margin: 20px 0 9px; font: 650 11px/1 var(--mono);
+  text-transform: uppercase; letter-spacing: .1em; color: var(--tenue);
+}
+.sub { margin: 0 0 16px; color: var(--suave); font-size: 14px; }
+
+.mapa-caja {
+  background: var(--capa-1); border: 1px solid var(--borde);
+  border-radius: var(--r); overflow: hidden;
+}
+#mapa { display: block; width: 100%; height: auto; }
+
+.datos {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+  background: var(--borde); border: 1px solid var(--borde);
+  border-radius: var(--r); overflow: hidden; margin: 16px 0 0;
+}
+.datos > div { background: var(--capa-1); padding: 11px 13px; }
+.datos dt {
+  font: 600 10px/1 var(--mono); text-transform: uppercase;
+  letter-spacing: .09em; color: var(--tenue); margin-bottom: 5px;
+}
+.datos dd { margin: 0; font-size: 14px; }
+
+.ocupantes { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ocupantes li {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--capa-1); border: 1px solid var(--borde);
+  border-radius: var(--r); padding: 11px 13px;
+}
+.ocupantes b { font-weight: 620; }
+.papel { font: 11px var(--mono); color: var(--tenue); margin-left: auto; }
+
+.nivel {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: 600 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em;
+  padding: 4px 8px; border-radius: 20px; border: 1px solid currentColor;
+}
+.nivel::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.n-nuevo { color: var(--n-nuevo); }
+.n-basico { color: var(--n-basico); }
+.n-verificado { color: var(--n-verificado); }
+.n-veterano { color: var(--n-veterano); }
+
+.posicion { margin: 16px 0 0; font-size: 13.5px; color: var(--dinero); }
+#caduca { margin-top: 14px; }
+
+.btn-2 {
+  display: inline-block; margin-top: 12px;
+  background: var(--capa-2); color: var(--texto); text-decoration: none;
+  border: 1px solid var(--borde-2); border-radius: var(--r);
+  padding: 10px 15px; font: 600 14px var(--sans);
+}
+.btn-2:hover { border-color: var(--acento); }
+
+@media (max-width: 480px) {
+  .datos { grid-template-columns: 1fr; }
+  .tarjeta h2 { font-size: 18px; }
+}

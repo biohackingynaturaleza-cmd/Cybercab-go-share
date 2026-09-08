@@ -14,6 +14,7 @@ import (
 
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/billing"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/geo"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/trust"
 )
 
@@ -84,6 +85,30 @@ type Store interface {
 	AnularRecuperaciones(userID string, at time.Time) error
 	CambiarContrasena(userID, hash string) error
 
+	// Seguridad: contactos, seguimiento del viaje y botón de emergencia
+	CrearContacto(c *domain.ContactoDeConfianza) error
+	ContactosDe(userID string) ([]*domain.ContactoDeConfianza, error)
+	// BorrarContacto exige el dueño: nadie borra el contacto de otro.
+	BorrarContacto(id, userID string) error
+
+	// CrearSeguimiento abre un enlace. Los anteriores siguen vivos: el testigo
+	// se guarda hasheado, así que un enlace ya mandado no se puede reconstruir
+	// para volver a mandarlo, y matarlo dejaría tirado a quien lo tenga.
+	CrearSeguimiento(s *domain.Seguimiento) error
+	SeguimientoPorHash(hash string) (*domain.Seguimiento, error)
+	SeguimientosVivos(tripID, userID string) ([]*domain.Seguimiento, error)
+	// RevocarSeguimientos cierra todos los de ese viaje y esa persona, y
+	// devuelve cuántos eran: dejar de compartir es dejar de compartir.
+	RevocarSeguimientos(tripID, userID string, at time.Time) (int, error)
+	ApuntarPosicion(tripID, userID string, punto geo.Point, at time.Time) error
+
+	CrearAlerta(a *domain.Alerta) error
+	GetAlerta(id string) (*domain.Alerta, error)
+	UpdateAlerta(a *domain.Alerta) error
+	AlertasAbiertas() ([]*domain.Alerta, error)
+	AlertaVivaDe(tripID, userID string) (*domain.Alerta, error)
+	AlertasDeViaje(tripID string) ([]*domain.Alerta, error)
+
 	// Confirmación del correo por código
 	CrearCodigoCorreo(c *domain.CodigoCorreo) error
 	// CodigoCorreoVivo devuelve el último código sin usar de esa persona.
@@ -143,6 +168,9 @@ type Memory struct {
 	recuperaciones map[string]*domain.Recuperacion
 	valoraciones   map[string]*domain.Valoracion
 	codigos        map[string]*domain.CodigoCorreo
+	contactos      map[string]*domain.ContactoDeConfianza
+	seguimientos   map[string]*domain.Seguimiento
+	alertas        map[string]*domain.Alerta
 	denuncias      map[string]*domain.Denuncia
 	// blocks son pares "bloqueador|bloqueado".
 	blocks map[string]bool
@@ -163,6 +191,9 @@ func NewMemory() *Memory {
 		recuperaciones: map[string]*domain.Recuperacion{},
 		valoraciones:   map[string]*domain.Valoracion{},
 		codigos:        map[string]*domain.CodigoCorreo{},
+		contactos:      map[string]*domain.ContactoDeConfianza{},
+		seguimientos:   map[string]*domain.Seguimiento{},
+		alertas:        map[string]*domain.Alerta{},
 		denuncias:      map[string]*domain.Denuncia{},
 		blocks:         map[string]bool{},
 	}

@@ -210,6 +210,20 @@ no se haya viajado todavía— el ahorro *previsto* de los viajes ya reservados.
 | `POST` | `/api/v1/me/correo/confirmar` | Acreditar el buzón con el código |
 | `POST` | `/api/v1/me/correo/reenviar` | Pedir otro código |
 
+### Seguridad
+| Método | Ruta | Qué hace |
+|---|---|---|
+| `GET` | `/api/v1/me/contactos` | Mis contactos de confianza |
+| `POST` | `/api/v1/me/contactos` | Añadir uno (máximo 3) |
+| `DELETE` | `/api/v1/me/contactos/{id}` | Quitarlo |
+| `GET` | `/api/v1/me/viajes-activos` | Los trayectos en los que voy dentro |
+| `POST` | `/api/v1/trips/{id}/compartir` | Abrir un enlace de seguimiento |
+| `POST` | `/api/v1/trips/{id}/dejar-de-compartir` | Cerrarlos todos |
+| `POST` | `/api/v1/trips/{id}/posicion` | Mandar dónde estoy |
+| `POST` | `/api/v1/trips/{id}/emergencia` | El botón |
+| `POST` | `/api/v1/alertas/{id}/retirar` | Falsa alarma |
+| `GET` | `/api/v1/seguimiento?t=…` | Ver un viaje. **Pública**: sin cuenta |
+
 Las cuatro rutas de acceso llevan techo de peticiones: son las únicas que
 alguien sin cuenta puede repetir sin límite. Ver
 [Límite de peticiones](#límite-de-peticiones).
@@ -238,6 +252,8 @@ Solo existen con `OPS_TOKEN` configurado; sin él devuelven `404`.
 
 | Método | Ruta | Qué hace |
 |---|---|---|
+| `GET` | `/api/v1/operaciones/alertas` | Alertas de emergencia abiertas |
+| `POST` | `/api/v1/operaciones/alertas/{id}/atender` | Cerrarla |
 | `GET` | `/api/v1/operaciones/denuncias` | Cola de revisión, lo urgente primero |
 | `POST` | `/api/v1/operaciones/denuncias/{id}/resolver` | Confirmarla o desestimarla |
 | `POST` | `/api/v1/operaciones/usuarios/{id}/levantar-suspension` | Deshacer una suspensión |
@@ -280,7 +296,7 @@ internal/simulacion/ medición de la ocupación de la flota
 internal/store/      persistencia (memoria o Postgres+PostGIS)
 internal/service/    lógica de negocio
 internal/api/        capa HTTP
-internal/api/web/    interfaz de usuario, embebida en el binario
+internal/api/web/    interfaz de usuario y páginas públicas, embebidas en el binario
 ```
 
 Las capas van de dentro hacia fuera: `geo`, `domain` y `trust` no conocen a
@@ -391,6 +407,59 @@ Dos propiedades que el código garantiza:
   de dinero.
 
 Ver [`docs/modelo-de-negocio.md`](docs/modelo-de-negocio.md).
+
+## El botón de emergencia, y lo que no hace
+
+Aquí no hay conductor. En un coche compartido de toda la vida, quien conduce
+hace de testigo; en un Cybercab biplaza son dos desconocidos solos. Toda la
+verificación de identidad existe para compensar eso *antes* del viaje. Esta
+parte es para *durante*.
+
+**Contactos de confianza.** Hasta tres personas, con nombre y correo. Tres y no
+más: una lista larga diluye la responsabilidad —cada uno supone que ya habrá
+reaccionado otro— y multiplica a quién se le enseña dónde estás.
+
+**El enlace de seguimiento.** Una dirección que no se puede adivinar y que
+enseña el viaje: la ruta, las horas, el vehículo, la posición en directo si el
+navegador la manda, y el **primer nombre y el nivel de confianza** de quienes
+van dentro. No hace falta cuenta para abrirlo: el contacto de confianza de
+alguien no tiene por qué registrarse aquí para saber que su hija llegó bien. Se
+manda solo al confirmarse una plaza, que es cuando dos desconocidos se
+comprometen a ir en el mismo coche; esperar a que la gente se acuerde de
+compartirlo es esperar a que no lo haga.
+
+**El botón.** Se mantiene pulsado segundo y medio: un solo gesto, que funciona
+con la mano temblando, y que no se dispara en el bolsillo. Un «¿estás seguro?»
+sería un paso más justo cuando no hay tiempo para pasos.
+
+Al pulsarlo:
+
+1. Se avisa a los contactos de confianza con un enlace al viaje y la posición.
+2. La alerta entra la primera en la cola de operaciones.
+3. La pantalla pone el **911 a un toque**.
+
+Y lo que **no** hace, dicho en el botón, en el correo, en la pantalla posterior,
+en la página de seguimiento y en las condiciones: **no llama a los servicios de
+emergencia**. Una app no puede hacer esa llamada. Dar a entender que sí es la
+clase de mentira por la que alguien se queda esperando una ayuda que no viene, y
+ninguna cifra de conversión justifica escribirla.
+
+Tres detalles que cuestan poco y evitan mucho:
+
+- **Funciona sin permiso de ubicación.** Sin posición la alerta sale igual: lo
+  que no puede pasar es que el botón falle justo cuando hace falta.
+- **La falsa alarma manda una corrección.** Los correos ya salieron y no se
+  pueden recoger, así que lo único honesto es mandar otro diciendo que no pasa
+  nada. Un susto sin desmentir se queda puesto.
+- **Los enlaces de un mismo viaje conviven.** El testigo se guarda hasheado, así
+  que de la base de datos no se puede recuperar la dirección de un enlace ya
+  mandado. Si crear uno nuevo matara al anterior, el correo del botón no podría
+  llevar un enlace que funcione sin dejar tirado a quien ya tenía el otro.
+  «Dejar de compartir» los cierra todos.
+
+**La posición solo se guarda mientras hay un enlace abierto.** No hay
+seguimiento en segundo plano: la manda el navegador con la app abierta y con
+permiso. Guardar posiciones que nadie va a mirar es rastrear.
 
 ## Valoraciones: por qué son a doble ciego
 
@@ -513,7 +582,5 @@ sin forma de renovarla.
    y describe el servicio real; falta un abogado de Texas, la entidad y las
    direcciones de contacto.
 3. **Pagos.** Cobrar el reparto y liquidarlo con quien organiza.
-4. **Compartir el viaje en tiempo real** con un contacto de confianza, y botón
-   de emergencia. En un coche sin conductor pesa más que en uno con conductor.
-5. **Un proveedor de identidad real.** Es lo único que separa la app de poder
+4. **Un proveedor de identidad real.** Es lo único que separa la app de poder
    admitir usuarios de verdad.

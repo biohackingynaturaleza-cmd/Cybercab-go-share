@@ -578,6 +578,12 @@ func (s *Service) DecideBooking(in DecisionInput) (*domain.Booking, error) {
 			return nil, err
 		}
 		s.avisarDecision(t, b, true)
+
+		// El momento en que dos desconocidos se comprometen a ir en el mismo
+		// coche es justo cuando alguien de fuera debería saberlo. A las dos
+		// partes: quien organiza también viaja con un desconocido.
+		s.avisarSalida(t, b.PassengerID)
+		s.avisarSalida(t, t.HostID)
 		return b, nil
 	}
 

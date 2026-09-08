@@ -30,6 +30,15 @@
   <main>
     <!-- Panel lateral -->
     <div class="panel" id="panel" hidden>
+      <!-- Viaje en curso: compartirlo y, si hace falta, el botón de
+           emergencia. Lo primero del panel, por encima incluso del ahorro:
+           nadie debería tener que pasar por encima del formulario de búsqueda
+           para encontrar el botón cuando lo necesita. -->
+      <section class="tarjeta oculto" id="viaje-activo">
+        <h2 data-t="seg.titulo"></h2>
+        <div id="activos"></div>
+      </section>
+
       <!-- Ahorro acumulado: la razón por la que alguien vuelve. -->
       <section class="ahorro oculto" id="caja-ahorro">
         <div class="ahorro-cifra" id="ahorro-cifra">0,00 $</div>
@@ -131,6 +140,31 @@
         <h2 data-t="val.titulo"></h2>
         <p class="tenue" data-t="val.explica"></p>
         <div id="valorar-lista"></div>
+      </section>
+
+      <!-- A quién avisar. Debajo de la confianza porque es lo mismo: cosas que
+           haces una vez y te protegen todas las demás. -->
+      <section class="tarjeta oculto" id="contactos-caja">
+        <h2 data-t="ctc.titulo"></h2>
+        <p class="tenue" data-t="ctc.explica"></p>
+        <ul class="contactos" id="contactos"></ul>
+        <form id="form-contacto">
+          <div class="campos-2">
+            <div class="campo">
+              <label for="ctc-nombre" data-t="ctc.nombre"></label>
+              <input id="ctc-nombre" autocomplete="off" data-t-ph="ctc.nombre.ph">
+            </div>
+            <div class="campo">
+              <label for="ctc-email" data-t="ctc.correo"></label>
+              <input id="ctc-email" type="email" autocomplete="off">
+            </div>
+          </div>
+          <label class="casilla">
+            <input type="checkbox" id="ctc-avisar" checked>
+            <span data-t="ctc.avisar"></span>
+          </label>
+          <button class="btn-2 ancho" id="ctc-anadir" style="margin-top:10px" data-t="ctc.anadir"></button>
+        </form>
       </section>
 
       <section class="oculto" id="incidencias-caja">
@@ -271,6 +305,22 @@
       </div>
     </div>
   </main>
+</div>
+
+<!-- Lo que se ve después de pulsar el botón. Grande, con el número el primero:
+     quien llega aquí no está para leer. -->
+<div class="modal" id="modal-alerta" hidden role="dialog" aria-modal="true" aria-labelledby="alr-titulo">
+  <div class="modal-caja alerta-caja">
+    <h2 id="alr-titulo" data-t="alr.titulo"></h2>
+    <p id="alr-sub"></p>
+    <a class="btn-911" id="alr-911" href="tel:911"><span data-t="alr.llamar"></span> <b id="alr-telefono">911</b></a>
+    <p class="tenue" data-t="alr.aviso"></p>
+    <ul class="alr-hecho" id="alr-hecho"></ul>
+    <div class="modal-pie">
+      <button class="btn-2" id="alr-falsa" data-t="alr.falsa"></button>
+      <button class="btn-1" id="alr-cerrar" data-t="alr.cerrar"></button>
+    </div>
+  </div>
 </div>
 
 <!-- Denunciar. Va en un diálogo y no en un enlace directo a propósito: hay que

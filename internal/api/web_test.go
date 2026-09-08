@@ -16,7 +16,8 @@ func TestLaInterfazSeSirve(t *testing.T) {
 	srv := newTestServer(t)
 
 	rutas := []string{"/", "/app.css", "/app.js", "/i18n.js",
-		"/terminos.html", "/privacidad.html", "/legal.css", "/legal.js"}
+		"/terminos.html", "/privacidad.html", "/legal.css", "/legal.js",
+		"/seguir.html", "/seguir.css", "/seguir.js"}
 	for _, ruta := range rutas {
 		resp, err := srv.Client().Get(srv.URL + ruta)
 		if err != nil {

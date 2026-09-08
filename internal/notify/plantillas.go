@@ -134,6 +134,45 @@ have stopped working.
 If this was not you, reset your password now to lock the account again:
 {enlace}`,
 		},
+		SucesoViajeCompartido: {
+			"{quien} is sharing a ride to {destino}",
+			`Hi {nombre},
+
+{quien} put you down as a trusted contact, and is sharing a robotaxi to
+{destino} on {salida}.
+
+You can follow the trip here — who is in the vehicle, the route, and where they
+are if their phone reports it:
+
+{enlace}
+
+You do not need an account. The link stops working after the trip.`,
+		},
+		SucesoAlertaDisparada: {
+			"{quien} pressed the emergency button",
+			`Hi {nombre},
+
+{quien} pressed the emergency button during their ride to {destino}.
+
+Open this to see where they are and who is in the vehicle:
+
+{enlace}
+
+If you think they are in danger, call {telefono}. We cannot make that call for
+you — we are an app, not an emergency service. What we have done is tell you and
+put this in front of our team.
+
+Vehicle: {vehiculo}    Fleet ride: {ref}
+Departure: {salida}    From {origen} to {destino}`,
+		},
+		SucesoAlertaRetirada: {
+			"False alarm: {quien} is fine",
+			`Hi {nombre},
+
+{quien} has withdrawn the alert on the ride to {destino}. It was a false alarm.
+
+Sorry for the scare. We would rather send this twice than leave you worried.`,
+		},
 		SucesoCodigoCorreo: {
 			"{codigo} is your confirmation code",
 			`Hi {nombre},
@@ -327,6 +366,45 @@ recuperación ha dejado de servir.
 
 Si no has sido tú, cambia la contraseña ahora para recuperar el control de la
 cuenta: {enlace}`,
+		},
+		SucesoViajeCompartido: {
+			"{quien} comparte un viaje a {destino}",
+			`Hola {nombre}:
+
+{quien} te ha puesto como contacto de confianza, y va a compartir un robotaxi a
+{destino} el {salida}.
+
+Puedes seguir el viaje aquí: quién va en el coche, la ruta y dónde está si su
+móvil lo dice.
+
+{enlace}
+
+No hace falta cuenta. El enlace deja de funcionar cuando acaba el viaje.`,
+		},
+		SucesoAlertaDisparada: {
+			"{quien} ha pulsado el botón de emergencia",
+			`Hola {nombre}:
+
+{quien} ha pulsado el botón de emergencia durante su viaje a {destino}.
+
+Abre esto para ver dónde está y quién va en el vehículo:
+
+{enlace}
+
+Si crees que está en peligro, llama al {telefono}. Esa llamada no podemos
+hacerla nosotros: somos una app, no un servicio de emergencias. Lo que sí hemos
+hecho es avisarte a ti y poner esto delante de nuestro equipo.
+
+Vehículo: {vehiculo}    Viaje de flota: {ref}
+Salida: {salida}    De {origen} a {destino}`,
+		},
+		SucesoAlertaRetirada: {
+			"Falsa alarma: {quien} está bien",
+			`Hola {nombre}:
+
+{quien} ha retirado la alerta del viaje a {destino}. Era una falsa alarma.
+
+Sentimos el susto. Preferimos mandarte esto dos veces a dejarte preocupado.`,
 		},
 		SucesoCodigoCorreo: {
 			"{codigo} es tu código de confirmación",

@@ -72,6 +72,8 @@
     <li><strong>The email provider</strong> delivers the notices we send you.</li>
     <li><strong>The routing service</strong> receives the coordinates of a trip
     to draw its route.</li>
+    <li><strong>Your trusted contacts</strong>, and only what a tracking link
+    shows, and only when you share a ride or press the emergency button.</li>
     <li><strong>Authorities</strong>, when a valid legal request requires it.</li>
   </ul>
   <p>We do not sell your data, we do not share it for advertising, and there are
@@ -79,43 +81,62 @@
 
   <h2>4. Location</h2>
   <p>We store the origin, destination and route of the trips you publish or
-  book, because splitting a fare by route slices is impossible without them. We
-  do not track your position in the background, and the app does not run when
-  you are not using it.</p>
+  book, because splitting a fare by route slices is impossible without them.</p>
+  <p><strong>Your live position is only stored while you are sharing a ride.</strong>
+  When you open a tracking link for a trip and give the browser permission, the
+  app sends your position so whoever holds that link can see it. It stops the
+  moment you close the link or the trip ends, it only happens with the app open,
+  and there is no background tracking of any kind. If you refuse the permission,
+  everything else still works — including the emergency button.</p>
 
-  <h2>5. What your browser stores</h2>
+  <h2>5. Trusted contacts and tracking links</h2>
+  <p>You can list up to three trusted contacts, by name and email. We write to
+  them only when you share a ride or press the emergency button — never
+  otherwise, and never for anything of ours.</p>
+  <p>A tracking link is an unguessable address. Whoever holds it sees the trip's
+  route, its times, the vehicle, your live position if you are sending it, and
+  the <strong>first name and trust level</strong> of everyone on board — not
+  their full names, emails or prices. We store the link hashed, so we cannot
+  reconstruct one that has already been sent. It expires after the trip and you
+  can close every link to a trip at any time.</p>
+  <p>Pressing the emergency button records the time, your position if it is
+  available, and what you wrote, and puts it in front of our team. That record
+  is kept even after you withdraw a false alarm: a pattern of alerts is exactly
+  the kind of thing a safety team needs to be able to see.</p>
+
+  <h2>6. What your browser stores</h2>
   <p>We do not use advertising or analytics cookies. Your browser keeps two
   things locally: your session token, so you do not have to sign in on every
   visit, and your language choice. Signing out removes the token.</p>
 
-  <h2>6. How long we keep it</h2>
+  <h2>7. How long we keep it</h2>
   <p>Your account and its trips stay while the account is open. When you close
   it we delete your personal data, keeping only what accounting and tax law
   require us to keep about settled amounts — and there, the minimum. Identity
   verifications are kept until they expire, plus the period the provider
   requires. Password reset links expire in one hour and are single-use.</p>
 
-  <h2>7. Your rights</h2>
+  <h2>8. Your rights</h2>
   <p>You can ask for a copy of your data, correct it, delete it, or object to a
   particular use of it. Write to the address below and we will answer within
   30 days. Texas residents also have the rights granted by the Texas Data
   Privacy and Security Act.</p>
 
-  <h2>8. Security</h2>
+  <h2>9. Security</h2>
   <p>Passwords are stored hashed with bcrypt. Password reset links are stored
   hashed too, so whoever reads that table cannot get into any account with it.
   Traffic travels over TLS. Sessions expire. None of this makes a breach
   impossible; if one happens, we will tell those affected.</p>
 
-  <h2>9. Children</h2>
+  <h2>10. Children</h2>
   <p>The service is not for anyone under 18, and we do not knowingly keep data
   about minors.</p>
 
-  <h2>10. Changes</h2>
+  <h2>11. Changes</h2>
   <p>This policy is versioned by date, like the terms. If we change something
   material we will tell you before it applies.</p>
 
-  <h2>11. Contact</h2>
+  <h2>12. Contact</h2>
   <p>Write to <a href="mailto:privacidad@cybercabgoshare.com">privacidad@cybercabgoshare.com</a>.</p>
 
   <footer>
@@ -176,6 +197,9 @@
     mandamos.</li>
     <li><strong>El servicio de rutas</strong> recibe las coordenadas de un
     trayecto para trazar su recorrido.</li>
+    <li><strong>Tus contactos de confianza</strong>, y solo lo que enseña un
+    enlace de seguimiento, y solo cuando compartes un viaje o pulsas el botón de
+    emergencia.</li>
     <li><strong>Las autoridades</strong>, cuando lo exija un requerimiento legal
     válido.</li>
   </ul>
@@ -184,16 +208,36 @@
 
   <h2>4. Ubicación</h2>
   <p>Guardamos el origen, el destino y la ruta de los trayectos que publicas o
-  reservas, porque repartir una tarifa por tramos es imposible sin ellos. No
-  seguimos tu posición en segundo plano, y la app no funciona cuando no la estás
-  usando.</p>
+  reservas, porque repartir una tarifa por tramos es imposible sin ellos.</p>
+  <p><strong>Tu posición en directo solo se guarda mientras compartes un
+  viaje.</strong> Cuando abres un enlace de seguimiento y le das permiso al
+  navegador, la app manda tu posición para que quien tenga ese enlace la vea.
+  Deja de hacerlo en cuanto cierras el enlace o acaba el viaje, solo ocurre con
+  la app abierta, y no hay ningún seguimiento en segundo plano. Si no das el
+  permiso, todo lo demás sigue funcionando, incluido el botón de emergencia.</p>
 
-  <h2>5. Qué guarda tu navegador</h2>
+  <h2>5. Contactos de confianza y enlaces de seguimiento</h2>
+  <p>Puedes tener hasta tres contactos de confianza, con su nombre y su correo.
+  Les escribimos solo cuando compartes un viaje o pulsas el botón de emergencia:
+  nunca por otra cosa, y nunca por algo nuestro.</p>
+  <p>Un enlace de seguimiento es una dirección que no se puede adivinar. Quien la
+  tenga ve la ruta del viaje, sus horas, el vehículo, tu posición en directo si
+  la estás mandando, y el <strong>primer nombre y el nivel de confianza</strong>
+  de quienes van a bordo: no sus nombres completos, ni sus correos, ni los
+  precios. El enlace se guarda hasheado, así que no podemos reconstruir uno ya
+  enviado. Caduca al terminar el viaje, y puedes cerrar todos los de un trayecto
+  cuando quieras.</p>
+  <p>Pulsar el botón de emergencia deja constancia de la hora, de tu posición si
+  está disponible y de lo que escribas, y lo pone delante de nuestro equipo. Esa
+  constancia se conserva aunque retires una falsa alarma: un patrón de alertas es
+  justo lo que un equipo de seguridad necesita poder ver.</p>
+
+  <h2>6. Qué guarda tu navegador</h2>
   <p>No usamos cookies de publicidad ni de analítica. Tu navegador guarda dos
   cosas en local: el testigo de tu sesión, para que no tengas que entrar en cada
   visita, y el idioma que elegiste. Al salir, el testigo se borra.</p>
 
-  <h2>6. Cuánto tiempo lo guardamos</h2>
+  <h2>7. Cuánto tiempo lo guardamos</h2>
   <p>Tu cuenta y sus trayectos, mientras la cuenta esté abierta. Al darte de
   baja borramos tus datos personales y conservamos solo lo que la normativa
   contable y fiscal nos obliga a conservar sobre los importes liquidados, y ahí
@@ -201,28 +245,28 @@
   el plazo que exija el proveedor. Los enlaces de recuperación de contraseña
   caducan en una hora y sirven una sola vez.</p>
 
-  <h2>7. Tus derechos</h2>
+  <h2>8. Tus derechos</h2>
   <p>Puedes pedir una copia de tus datos, corregirlos, borrarlos u oponerte a un
   uso concreto. Escribe a la dirección de abajo y contestamos en 30 días. Si
   resides en Texas, tienes además los derechos que te reconoce la Texas Data
   Privacy and Security Act.</p>
 
-  <h2>8. Seguridad</h2>
+  <h2>9. Seguridad</h2>
   <p>Las contraseñas se guardan hasheadas con bcrypt. Los enlaces de
   recuperación también se guardan hasheados, así que quien lea esa tabla no
   puede entrar en ninguna cuenta con ella. El tráfico va por TLS. Las sesiones
   caducan. Nada de esto hace imposible una brecha; si ocurre, avisaremos a
   quienes se vean afectados.</p>
 
-  <h2>9. Menores</h2>
+  <h2>10. Menores</h2>
   <p>El servicio no es para menores de 18 años y no guardamos a sabiendas datos
   de menores.</p>
 
-  <h2>10. Cambios</h2>
+  <h2>11. Cambios</h2>
   <p>Esta política se versiona por fecha, igual que las condiciones. Si cambiamos
   algo relevante, te lo diremos antes de que se aplique.</p>
 
-  <h2>11. Contacto</h2>
+  <h2>12. Contacto</h2>
   <p>Escríbenos a <a href="mailto:privacidad@cybercabgoshare.com">privacidad@cybercabgoshare.com</a>.</p>
 
   <footer>

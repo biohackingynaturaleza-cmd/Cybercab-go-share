@@ -33,6 +33,7 @@
   --n-veterano:   #b49bff;
 
   --peligro: #ff6b78;
+  --peligro-bajo: #2a1015;
 
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
@@ -675,3 +676,90 @@ textarea:focus { border-color: var(--acento); outline: none; }
   padding: 11px 10px;
 }
 #codigo-correo::placeholder { letter-spacing: .34em; color: var(--borde-2); }
+
+/* ============ Seguridad: contactos, seguimiento y botón ============ */
+
+.contactos { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 8px; }
+.contactos:empty { margin: 0; }
+.contactos li {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--capa-1); border: 1px solid var(--borde);
+  border-radius: var(--r); padding: 10px 12px; font-size: 13.5px;
+}
+.contactos .correo { color: var(--tenue); font: 11.5px var(--mono); }
+.contactos .quitar {
+  margin-left: auto; background: none; border: 0; cursor: pointer;
+  color: var(--tenue); font-size: 17px; line-height: 1; padding: 2px 5px;
+}
+.contactos .quitar:hover { color: var(--peligro); }
+.contactos .avisa {
+  font: 10px var(--mono); text-transform: uppercase; letter-spacing: .07em;
+  color: var(--dinero);
+}
+
+.activo {
+  border-top: 1px solid var(--borde); padding-top: 13px; margin-top: 13px;
+}
+.activo:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+.activo-ruta { font-size: 14px; font-weight: 620; margin-bottom: 2px; }
+.activo-cuando { font: 11px var(--mono); color: var(--tenue); margin-bottom: 11px; }
+.activo-acciones { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* El enlace de seguimiento, listo para copiar de un vistazo. */
+.enlace-seg {
+  display: flex; gap: 8px; align-items: center; margin-top: 10px;
+}
+.enlace-seg input {
+  flex: 1; min-width: 0; font: 11.5px var(--mono); padding: 8px 10px;
+  color: var(--suave);
+}
+
+/* El botón de emergencia. Se mantiene pulsado 1,5 s: un solo gesto, que
+   funciona con la mano temblando, y que no se dispara en el bolsillo. La barra
+   que se llena es lo que hace entendible que hay que seguir apretando. */
+.sos {
+  position: relative; overflow: hidden;
+  width: 100%; margin-top: 12px;
+  background: var(--peligro-bajo);
+  color: var(--peligro); border: 1px solid var(--peligro);
+  border-radius: var(--r); padding: 14px;
+  font: 700 15px/1.2 var(--sans); cursor: pointer;
+  touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.sos:hover { background: #3a161c; }
+.sos span { position: relative; z-index: 1; }
+.sos i {
+  position: absolute; inset: 0 auto 0 0; width: 0;
+  background: var(--peligro); opacity: .35; z-index: 0;
+  transition: width 60ms linear;
+}
+.sos.armado i { transition: width 1.5s linear; width: 100%; }
+.sos small {
+  display: block; position: relative; z-index: 1;
+  font: 400 11.5px/1.4 var(--sans); color: #c9a2a8; margin-top: 5px;
+}
+
+.alerta-caja { border-color: var(--peligro); background: #1e1013; }
+.alerta-caja h2 { color: var(--peligro); }
+.btn-911 {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  background: var(--peligro); color: #2a0007; text-decoration: none;
+  font: 700 18px/1 var(--sans); padding: 16px; border-radius: var(--r2);
+  margin: 14px 0 10px;
+}
+.btn-911 b { font: 800 22px/1 var(--mono); letter-spacing: .04em; }
+.btn-911:hover { background: #ff8a94; }
+.alr-hecho {
+  list-style: none; margin: 14px 0 0; padding: 0;
+  display: grid; gap: 6px; font-size: 13px; color: var(--suave);
+}
+.alr-hecho li { display: grid; grid-template-columns: 16px 1fr; gap: 8px; }
+.alr-hecho li::before { content: "✓"; color: var(--dinero); }
+
+/* Aviso de alerta viva, para volver a abrir el diálogo. */
+.alerta-viva {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: var(--peligro-bajo); border: 1px solid var(--peligro);
+  color: var(--peligro); border-radius: var(--r); padding: 12px 13px;
+  font: 600 13px var(--sans); cursor: pointer; margin-top: 12px; text-align: left;
+}

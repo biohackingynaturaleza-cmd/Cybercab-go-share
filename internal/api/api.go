@@ -74,6 +74,21 @@ func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger, o
 	mux.Handle("POST /api/v1/me/terminos", protegida(s.aceptarTerminos))
 	mux.Handle("POST /api/v1/me/correo/confirmar", protegida(s.confirmarCorreo))
 	mux.Handle("POST /api/v1/me/correo/reenviar", protegida(s.reenviarCodigoCorreo))
+
+	// Seguridad: a quién avisar, cómo compartir el viaje y el botón.
+	mux.Handle("GET /api/v1/me/viajes-activos", protegida(s.misViajesActivos))
+	mux.Handle("GET /api/v1/me/contactos", protegida(s.misContactos))
+	mux.Handle("POST /api/v1/me/contactos", protegida(s.añadirContacto))
+	mux.Handle("DELETE /api/v1/me/contactos/{id}", protegida(s.borrarContacto))
+	mux.Handle("POST /api/v1/trips/{id}/compartir", protegida(s.compartirViaje))
+	mux.Handle("POST /api/v1/trips/{id}/posicion", protegida(s.apuntarPosicion))
+	mux.Handle("POST /api/v1/trips/{id}/dejar-de-compartir", protegida(s.dejarDeCompartir))
+	mux.Handle("POST /api/v1/trips/{id}/emergencia", protegida(s.emergencia))
+	mux.Handle("POST /api/v1/alertas/{id}/retirar", protegida(s.retirarAlerta))
+
+	// Pública: quien recibe el enlace no tiene por qué registrarse aquí para
+	// saber que su hija llegó bien.
+	mux.HandleFunc("GET /api/v1/seguimiento", s.verSeguimiento)
 	mux.Handle("GET /api/v1/me/valoraciones/pendientes", protegida(s.misValoracionesPendientes))
 	mux.Handle("GET /api/v1/me/denuncias", protegida(s.misDenuncias))
 
@@ -83,6 +98,8 @@ func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger, o
 	mux.Handle("POST /api/v1/users/{id}/denunciar", protegida(s.denunciar))
 
 	// Operaciones: la cola de revisión. Solo existe con token configurado.
+	mux.HandleFunc("GET /api/v1/operaciones/alertas", s.operaciones(s.colaDeAlertas))
+	mux.HandleFunc("POST /api/v1/operaciones/alertas/{id}/atender", s.operaciones(s.atenderAlerta))
 	mux.HandleFunc("GET /api/v1/operaciones/denuncias", s.operaciones(s.colaDeDenuncias))
 	mux.HandleFunc("POST /api/v1/operaciones/denuncias/{id}/resolver", s.operaciones(s.resolverDenuncia))
 	mux.HandleFunc("POST /api/v1/operaciones/usuarios/{id}/levantar-suspension", s.operaciones(s.levantarSuspension))
@@ -573,8 +590,15 @@ func writeError(w http.ResponseWriter, err error) {
 			"error":  err.Error(),
 			"codigo": "cuenta_suspendida",
 		})
-	case errors.Is(err, service.ErrSinTratoPrevio):
+	case errors.Is(err, service.ErrSinTratoPrevio), errors.Is(err, service.ErrNoVasEnEsteViaje):
 		writeProblem(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, service.ErrSeguimientoInvalido):
+		writeJSON(w, http.StatusGone, map[string]string{
+			"error":  err.Error(),
+			"codigo": "seguimiento_caducado",
+		})
+	case errors.Is(err, service.ErrDemasiadosContactos), errors.Is(err, store.ErrContactoRepetido):
+		writeProblem(w, http.StatusConflict, err.Error())
 	case errors.Is(err, trust.ErrConfianzaInsuficiente):
 		// 403 con el detalle de qué falta: negar el acceso sin explicar qué
 		// hacer para conseguirlo solo genera abandono.
@@ -595,6 +619,8 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrEmailEnUso):
 		writeProblem(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrIncidenciaResuelta), errors.Is(err, store.ErrIncidenciaEnCurso):
+		writeProblem(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrAlertaResuelta):
 		writeProblem(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrDenunciaResuelta), errors.Is(err, store.ErrYaValorado):
 		writeProblem(w, http.StatusConflict, err.Error())

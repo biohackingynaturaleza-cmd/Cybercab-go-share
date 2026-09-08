@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#07090b">
+<meta name="robots" content="noindex, nofollow">
+<title>Following a ride · Cybercab Go Share</title>
+<link rel="stylesheet" href="/seguir.css">
+</head>
+<body>
+
+<header>
+  <div class="barra">
+    <a class="marca" href="/"><b>Cybercab</b> Go Share</a>
+    <div class="idiomas" role="group" aria-label="Language">
+      <button data-idioma="en" aria-pressed="false">EN</button><button data-idioma="es" aria-pressed="false">ES</button>
+    </div>
+  </div>
+</header>
+
+<main id="pagina">
+  <p class="cargando" id="cargando" data-t="cargando"></p>
+
+  <!-- La alerta va la primera y ocupa toda la anchura: quien abre esto después
+       de recibir el aviso no puede tener que buscarla. -->
+  <section class="alerta oculto" id="alerta">
+    <h1 data-t="alerta.titulo"></h1>
+    <p id="alerta-cuando"></p>
+    <p class="nota oculto" id="alerta-nota"></p>
+    <a class="btn-911" id="btn-911" href="tel:911"><span data-t="alerta.llamar"></span> <b id="telefono">911</b></a>
+    <p class="letra-chica" data-t="alerta.aviso"></p>
+  </section>
+
+  <section class="tarjeta oculto" id="viaje">
+    <h2 id="titulo"></h2>
+    <p class="sub" id="sub"></p>
+
+    <div class="mapa-caja">
+      <svg id="mapa" viewBox="0 0 600 320" role="img" aria-labelledby="mapa-titulo">
+        <title id="mapa-titulo" data-t="mapa.alt"></title>
+      </svg>
+    </div>
+
+    <dl class="datos">
+      <div><dt data-t="dato.salida"></dt><dd id="d-salida"></dd></div>
+      <div><dt data-t="dato.vehiculo"></dt><dd id="d-vehiculo"></dd></div>
+      <div><dt data-t="dato.duracion"></dt><dd id="d-duracion"></dd></div>
+      <div><dt data-t="dato.estado"></dt><dd id="d-estado"></dd></div>
+    </dl>
+
+    <h3 data-t="ocupantes.titulo"></h3>
+    <ul class="ocupantes" id="ocupantes"></ul>
+
+    <p class="posicion oculto" id="posicion"></p>
+    <p class="letra-chica" id="caduca"></p>
+  </section>
+
+  <section class="tarjeta oculto" id="caducado">
+    <h2 data-t="caducado.titulo"></h2>
+    <p data-t="caducado.texto"></p>
+    <a class="btn-2" href="/" data-t="caducado.volver"></a>
+  </section>
+</main>
+
+<script src="/seguir.js"></script>
+</body>
+</html>
