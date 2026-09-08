@@ -107,31 +107,69 @@ type Session struct {
 }
 
 // Register da de alta a una persona y le abre sesión.
-func (s *Service) Register(name, email, password, idioma string) (*Session, error) {
-	if name == "" || email == "" {
+// RegisterInput son los datos de alta de una cuenta.
+type RegisterInput struct {
+	Name     string
+	Email    string
+	Password string
+	// Idioma en el que se le escribirá después.
+	Idioma string
+	// AceptaTerminos tiene que venir en cierto. Es un campo aparte y no un
+	// valor por defecto a propósito: quien llame a esto tiene que haber
+	// recogido esa aceptación de verdad, y un campo obligatorio obliga a
+	// pensarlo en cada sitio nuevo desde el que se den de alta cuentas.
+	AceptaTerminos bool
+}
+
+// Register da de alta una cuenta y abre sesión.
+func (s *Service) Register(in RegisterInput) (*Session, error) {
+	if in.Name == "" || in.Email == "" {
 		return nil, fmt.Errorf("%w: nombre y email son obligatorios", domain.ErrValidation)
 	}
-	if !strings.Contains(email, "@") {
+	if !strings.Contains(in.Email, "@") {
 		return nil, fmt.Errorf("%w: el email no parece válido", domain.ErrValidation)
 	}
-	hash, err := auth.HashPassword(password)
+	if !in.AceptaTerminos {
+		return nil, ErrTerminosNoAceptados
+	}
+	hash, err := auth.HashPassword(in.Password)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", domain.ErrValidation, err)
 	}
 
+	now := s.cfg.Now()
 	u := &domain.User{
-		ID:           newID("usr"),
-		Name:         name,
-		Email:        strings.TrimSpace(email),
-		PasswordHash: hash,
-		Idioma:       domain.NormalizarIdioma(idioma),
-		Rating:       5,
-		CreatedAt:    s.cfg.Now(),
+		ID:              newID("usr"),
+		Name:            in.Name,
+		Email:           strings.TrimSpace(in.Email),
+		PasswordHash:    hash,
+		Idioma:          domain.NormalizarIdioma(in.Idioma),
+		Rating:          5,
+		CreatedAt:       now,
+		TerminosVersion: domain.VersionTerminos,
+		TerminosAt:      &now,
 	}
 	if err := s.store.CreateUser(u); err != nil {
 		return nil, err
 	}
 	return s.openSession(u)
+}
+
+// ErrTerminosNoAceptados se devuelve al dar de alta una cuenta sin aceptar las
+// condiciones.
+var ErrTerminosNoAceptados = errors.New("hay que aceptar las condiciones del servicio para crear la cuenta")
+
+// AceptarTerminos deja constancia de que esa persona acepta la redacción
+// vigente.
+//
+// Hace falta porque las condiciones se versionan: sin esto, publicar una
+// redacción nueva dejaría a todo el mundo con una aceptación caducada y sin
+// ninguna forma de renovarla.
+func (s *Service) AceptarTerminos(userID string) (*domain.User, error) {
+	if err := s.store.AceptarTerminos(userID, domain.VersionTerminos, s.cfg.Now()); err != nil {
+		return nil, err
+	}
+	return s.store.GetUser(userID)
 }
 
 // Login comprueba las credenciales y abre sesión.

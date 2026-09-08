@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/billing"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
@@ -34,6 +35,9 @@ type Store interface {
 	CreateUser(u *domain.User) error
 	GetUser(id string) (*domain.User, error)
 	GetUserByEmail(email string) (*domain.User, error)
+	// AceptarTerminos deja constancia de qué redacción de las condiciones
+	// aceptó esa persona y cuándo.
+	AceptarTerminos(userID, version string, at time.Time) error
 
 	CreateTrip(t *domain.Trip) error
 	GetTrip(id string) (*domain.Trip, error)
@@ -70,6 +74,16 @@ type Store interface {
 	PendingEntries() ([]billing.Entry, error)
 	MarkSettled(entryIDs []string, settlementID string) error
 
+	// Recuperación de contraseña
+	CrearRecuperacion(r *domain.Recuperacion) error
+	RecuperacionPorHash(hash string) (*domain.Recuperacion, error)
+	// UsarRecuperacion gasta el enlace de forma atómica: si ya estaba usado
+	// devuelve ErrRecuperacionUsada.
+	UsarRecuperacion(id string, at time.Time) error
+	// AnularRecuperaciones invalida los enlaces vivos de una persona.
+	AnularRecuperaciones(userID string, at time.Time) error
+	CambiarContrasena(userID, hash string) error
+
 	// Incidencias posteriores al viaje
 	CreateIncidencia(i *domain.Incidencia) error
 	GetIncidencia(id string) (*domain.Incidencia, error)
@@ -97,6 +111,8 @@ type Memory struct {
 	checks      map[string]*trust.Check
 	entries     map[string]*billing.Entry
 	incidencias map[string]*domain.Incidencia
+	// recuperaciones son las peticiones de cambio de contraseña vivas.
+	recuperaciones map[string]*domain.Recuperacion
 	// blocks son pares "bloqueador|bloqueado".
 	blocks map[string]bool
 	// tripOrder preserva el orden de alta para que los listados sean estables.
@@ -106,14 +122,15 @@ type Memory struct {
 // NewMemory crea un almacén vacío.
 func NewMemory() *Memory {
 	return &Memory{
-		users:       map[string]*domain.User{},
-		byEmail:     map[string]string{},
-		trips:       map[string]*domain.Trip{},
-		bookings:    map[string]*domain.Booking{},
-		checks:      map[string]*trust.Check{},
-		entries:     map[string]*billing.Entry{},
-		incidencias: map[string]*domain.Incidencia{},
-		blocks:      map[string]bool{},
+		users:          map[string]*domain.User{},
+		byEmail:        map[string]string{},
+		trips:          map[string]*domain.Trip{},
+		bookings:       map[string]*domain.Booking{},
+		checks:         map[string]*trust.Check{},
+		entries:        map[string]*billing.Entry{},
+		incidencias:    map[string]*domain.Incidencia{},
+		recuperaciones: map[string]*domain.Recuperacion{},
+		blocks:         map[string]bool{},
 	}
 }
 

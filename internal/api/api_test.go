@@ -122,6 +122,15 @@ func do(t *testing.T, srv *entorno, method, path, token string, body, out any) i
 	return resp.StatusCode
 }
 
+// altaDe es el cuerpo de un registro válido. La aceptación de las condiciones
+// va aquí y no por defecto en el servidor: es lo que se está exigiendo.
+func altaDe(name, email string) map[string]any {
+	return map[string]any{
+		"name": name, "email": email, "password": password,
+		"idioma": "es", "acepta_terminos": true,
+	}
+}
+
 type sesion struct {
 	Token string `json:"token"`
 	User  struct {
@@ -135,7 +144,7 @@ func registrar(t *testing.T, srv *entorno, name, email string) sesion {
 	t.Helper()
 	var s sesion
 	code := do(t, srv, http.MethodPost, "/api/v1/auth/register", "",
-		map[string]string{"name": name, "email": email, "password": password, "idioma": "es"}, &s)
+		altaDe(name, email), &s)
 	if code != http.StatusCreated {
 		t.Fatalf("registro de %s: código = %d", name, code)
 	}
@@ -153,7 +162,7 @@ func registrarSinVerificar(t *testing.T, srv *entorno, name, email string) sesio
 	t.Helper()
 	var s sesion
 	code := do(t, srv, http.MethodPost, "/api/v1/auth/register", "",
-		map[string]string{"name": name, "email": email, "password": password, "idioma": "es"}, &s)
+		altaDe(name, email), &s)
 	if code != http.StatusCreated {
 		t.Fatalf("registro de %s: código = %d", name, code)
 	}
@@ -251,7 +260,7 @@ func TestNoSePuedeRegistrarDosVecesElMismoEmail(t *testing.T) {
 	registrar(t, srv, "Ana", "ana@example.com")
 
 	code := do(t, srv, http.MethodPost, "/api/v1/auth/register", "",
-		map[string]string{"name": "Otra Ana", "email": "ANA@example.com", "password": password}, nil)
+		altaDe("Otra Ana", "ANA@example.com"), nil)
 	if code != http.StatusConflict {
 		t.Fatalf("código = %d, esperaba 409: el email ya está en uso", code)
 	}

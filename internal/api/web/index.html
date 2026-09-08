@@ -36,6 +36,13 @@
         <div class="ahorro-pie" id="ahorro-pie"></div>
       </section>
 
+      <!-- Condiciones nuevas: hay que aceptarlas para seguir usando la app. -->
+      <section class="tarjeta destaca oculto" id="caja-terminos">
+        <h2 data-t="legal.nuevas.t"></h2>
+        <p class="tenue" id="terminos-nuevas-d"></p>
+        <button class="btn-1 ancho" id="btn-aceptar-terminos" data-t="legal.aceptar"></button>
+      </section>
+
       <!-- Peticiones sin responder: lo único que exige actuar. -->
       <div class="pendientes oculto" id="pendientes" role="button" tabindex="0">
         <span class="contador" id="pendientes-num">0</span>
@@ -163,10 +170,40 @@
             </ol>
 
             <p class="portada-nota" data-t="portada.nota"></p>
+            <p class="portada-nota pie-legal">
+              <a href="/terminos.html" data-t="legal.terminos"></a> ·
+              <a href="/privacidad.html" data-t="legal.privacidad"></a>
+            </p>
           </div>
 
           <!-- El mapa se ve al fondo, a la derecha -->
           <div></div>
+        </div>
+
+        <!-- Recuperar contraseña: pedir el enlace, o usarlo si ya se trae. -->
+        <div class="portada oculto" id="recuperar" style="grid-template-columns:1fr">
+          <div class="portada-texto" style="max-width:440px;margin:0 auto;width:100%">
+            <button class="enlace" id="rec-volver" style="margin-bottom:20px" data-t="acceso.volver"></button>
+            <h1 style="font-size:30px" id="rec-titulo"></h1>
+            <p class="entradilla" style="font-size:15px" id="rec-sub"></p>
+
+            <form id="form-rec-pedir" class="tarjeta">
+              <div class="campo">
+                <label for="rec-email" data-t="acceso.correo"></label>
+                <input id="rec-email" type="email" autocomplete="email" required>
+              </div>
+              <button class="btn-1 ancho" id="btn-rec-pedir" style="margin-top:6px" data-t="rec.pedir"></button>
+            </form>
+
+            <form id="form-rec-cambiar" class="tarjeta oculto">
+              <div class="campo">
+                <label for="rec-clave" data-t="rec.nueva"></label>
+                <input id="rec-clave" type="password" autocomplete="new-password" required
+                       minlength="10" data-t-ph="acceso.clave.ph">
+              </div>
+              <button class="btn-1 ancho" id="btn-rec-cambiar" style="margin-top:6px" data-t="rec.guardar"></button>
+            </form>
+          </div>
         </div>
 
         <!-- Acceso -->
@@ -189,8 +226,20 @@
                 <input id="clave" type="password" autocomplete="new-password" required
                        minlength="10" data-t-ph="acceso.clave.ph">
               </div>
+
+              <!-- La aceptación va aquí, junto al botón que crea la cuenta, y
+                   sin marcar de antemano: una casilla premarcada no acredita
+                   que nadie haya leído nada. -->
+              <label class="casilla oculto" id="campo-terminos">
+                <input type="checkbox" id="acepta-terminos">
+                <span id="texto-terminos"></span>
+              </label>
+
               <button class="btn-1 ancho" id="btn-acceso" style="margin-top:6px">Crear cuenta</button>
             </form>
+            <p class="portada-nota">
+              <button class="enlace oculto" id="olvide" data-t="acceso.olvide"></button>
+            </p>
             <p class="portada-nota">
               <span id="cambiar-texto"></span>
               <button class="enlace" id="cambiar-modo"></button>

@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
 )
 
 // La interfaz va embebida en el binario: si alguien la mueve o la renombra,
@@ -13,7 +15,9 @@ import (
 func TestLaInterfazSeSirve(t *testing.T) {
 	srv := newTestServer(t)
 
-	for _, ruta := range []string{"/", "/app.css", "/app.js"} {
+	rutas := []string{"/", "/app.css", "/app.js", "/i18n.js",
+		"/terminos.html", "/privacidad.html", "/legal.css", "/legal.js"}
+	for _, ruta := range rutas {
 		resp, err := srv.Client().Get(srv.URL + ruta)
 		if err != nil {
 			t.Fatalf("GET %s: %v", ruta, err)
@@ -26,6 +30,33 @@ func TestLaInterfazSeSirve(t *testing.T) {
 		}
 		if len(cuerpo) == 0 {
 			t.Errorf("GET %s: cuerpo vacío", ruta)
+		}
+	}
+}
+
+func TestLasPaginasLegalesEstanEnLosDosIdiomas(t *testing.T) {
+	// Las condiciones son parte del producto, no un anexo: quien las lee en
+	// español tiene que poder leerlas en español, no una traducción a medias.
+	srv := newTestServer(t)
+
+	for _, ruta := range []string{"/terminos.html", "/privacidad.html"} {
+		resp, err := srv.Client().Get(srv.URL + ruta)
+		if err != nil {
+			t.Fatalf("GET %s: %v", ruta, err)
+		}
+		cuerpo, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		texto := string(cuerpo)
+
+		for _, marca := range []string{`data-idioma="en"`, `data-idioma="es"`} {
+			if !strings.Contains(texto, marca) {
+				t.Errorf("%s no trae el bloque %s", ruta, marca)
+			}
+		}
+		// La versión que se enseña tiene que ser la que el servidor exige: si
+		// se separan, la gente acepta una redacción y se guarda otra.
+		if !strings.Contains(texto, domain.VersionTerminos) {
+			t.Errorf("%s no menciona la versión vigente %s", ruta, domain.VersionTerminos)
 		}
 	}
 }

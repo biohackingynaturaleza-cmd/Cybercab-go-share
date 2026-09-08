@@ -62,6 +62,10 @@ function toast(titulo, detalle = '', tipo = '') {
   const cerrar = () => {
     el.classList.add('se-va');
     el.addEventListener('animationend', () => el.remove(), { once: true });
+    // Red de seguridad: en una pestaña de fondo el navegador frena las
+    // animaciones y ese evento puede no llegar nunca, dejando avisos viejos
+    // apilados encima de los nuevos.
+    setTimeout(() => el.remove(), 1000);
   };
   const t = setTimeout(cerrar, tipo === 'error' ? 8000 : 5000);
   el.addEventListener('click', () => { clearTimeout(t); cerrar(); });
@@ -138,6 +142,7 @@ let esAlta = true;
 function mostrarAcceso(alta) {
   esAlta = alta;
   $('portada').classList.add('oculto');
+  $('recuperar').classList.add('oculto');
   $('acceso').classList.remove('oculto');
   $('acceso-titulo').textContent = t(alta ? 'acceso.crear' : 'acceso.entrar');
   $('acceso-sub').textContent = t(alta ? 'acceso.sub.crear' : 'acceso.sub.entrar');
@@ -146,12 +151,36 @@ function mostrarAcceso(alta) {
   $('clave').autocomplete = alta ? 'new-password' : 'current-password';
   $('cambiar-texto').textContent = t(alta ? 'acceso.ya' : 'acceso.aun');
   $('cambiar-modo').textContent = t(alta ? 'acceso.entrar.enlace' : 'acceso.crear.enlace');
+
+  // La casilla solo aparece al crear cuenta: quien ya la tiene, ya aceptó.
+  $('campo-terminos').classList.toggle('oculto', !alta);
+  $('texto-terminos').innerHTML = textoDeAceptacion();
+  // Y se desmarca cada vez que se abre el formulario: si quedara marcada de
+  // una visita anterior, la aceptación no sería un acto de nadie.
+  $('acepta-terminos').checked = false;
+  // Recuperar la contraseña solo tiene sentido para quien ya tiene cuenta.
+  $('olvide').classList.toggle('oculto', alta);
+
   (alta ? $('nombre') : $('email')).focus();
+}
+
+/* textoDeAceptacion compone la frase con los dos enlaces dentro. Se arma aquí y
+   no en el HTML porque el orden de las palabras cambia con el idioma, y con él
+   el sitio donde caen los enlaces. El texto se escapa antes de meter los
+   enlaces: lo único que entra como HTML es lo que ponemos nosotros. */
+function textoDeAceptacion() {
+  const enlace = (href, clave) =>
+    `<a href="${href}" target="_blank" rel="noopener">${escapar(t(clave))}</a>`;
+  return escapar(t('acceso.terminos'))
+    .replace('{terminos}', enlace('/terminos.html', 'legal.terminos'))
+    .replace('{privacidad}', enlace('/privacidad.html', 'legal.privacidad'));
 }
 
 function volverAPortada() {
   $('acceso').classList.add('oculto');
+  $('recuperar').classList.add('oculto');
   $('portada').classList.remove('oculto');
+  if (location.hash.startsWith('#recuperar=')) history.replaceState(null, '', location.pathname);
 }
 
 async function enviarAcceso(ev) {
@@ -165,6 +194,11 @@ async function enviarAcceso(ev) {
     $('nombre').focus();
     return;
   }
+  if (esAlta && !$('acepta-terminos').checked) {
+    toast(t('aviso.terminos.t'), parrafo(t('aviso.terminos.d')), 'error');
+    $('acepta-terminos').focus();
+    return;
+  }
 
   const btn = $('btn-acceso');
   const antes = btn.textContent;
@@ -176,7 +210,7 @@ async function enviarAcceso(ev) {
       // después. Sin esto, quien usa la app en español recibía los correos en
       // inglés.
       ? await api('POST', '/api/v1/auth/register',
-          { name: nombre, email, password: clave, idioma: idioma() })
+          { name: nombre, email, password: clave, idioma: idioma(), acepta_terminos: true })
       : await api('POST', '/api/v1/auth/login', { email, password: clave });
 
     estado.token = sesion.token;
@@ -185,11 +219,29 @@ async function enviarAcceso(ev) {
     if (esAlta) toast(t('aviso.cuenta.t'), parrafo(t('aviso.cuenta.d')), 'bien');
     await entrarEnLaApp();
   } catch (e) {
-    toast(t('aviso.fallo.t'), parrafo(e.message), 'error');
+    if (!avisarSiCortaron(e)) toast(t('aviso.fallo.t'), parrafo(mensajeDeError(e)), 'error');
   } finally {
     btn.disabled = false;
     btn.textContent = antes;
   }
+}
+
+/* mensajeDeError elige el texto que lee la persona. Cuando el servidor manda un
+   código estable, el texto lo pone la interfaz en su idioma; el mensaje del
+   servidor es el último recurso. */
+function mensajeDeError(e) {
+  const codigos = { enlace_no_valido: 'rec.caducado' };
+  const clave = codigos[e.datos?.codigo];
+  return clave ? t(clave) : e.message;
+}
+
+/* avisarSiCortaron traduce el 429 a algo con el que la persona sabe qué hacer.
+   Un "Error 429" en crudo no le dice a nadie que basta con esperar. */
+function avisarSiCortaron(e) {
+  if (e.status !== 429) return false;
+  toast(t('aviso.demasiados.t'),
+    parrafo(t('aviso.demasiados.d', { segundos: e.datos.reintentar_en_s || 60 })), 'error');
+  return true;
 }
 
 async function entrarEnLaApp() {
@@ -987,6 +1039,8 @@ function pintar() {
        <button class="enlace" id="btn-salir">${escapar(t('cab.salir'))}</button>`
     : `<button class="btn-2 btn-fino" id="btn-entrar-cab">${escapar(t('cab.entrar'))}</button>`;
 
+  pintarTerminos();
+
   if (dentro) {
     $('btn-salir').addEventListener('click', salir);
     pintarConfianza();
@@ -1007,6 +1061,106 @@ function cambiarModo(modo) {
   dibujarMapa();
 }
 
+/* ============ Recuperar contraseña ============ */
+
+/* La vista tiene dos caras: pedir el enlace, y usarlo. Cuál se enseña lo decide
+   si la dirección trae testigo, no un botón: quien llega desde el correo ya ha
+   hecho su parte y solo tiene que elegir contraseña. */
+function testigoDeLaURL() {
+  const h = location.hash || '';
+  return h.startsWith('#recuperar=') ? decodeURIComponent(h.slice('#recuperar='.length)) : '';
+}
+
+function mostrarRecuperar(testigo = '') {
+  $('portada').classList.add('oculto');
+  $('acceso').classList.add('oculto');
+  $('recuperar').classList.remove('oculto');
+
+  const conTestigo = !!testigo;
+  $('rec-titulo').textContent = t(conTestigo ? 'rec.titulo.nueva' : 'rec.titulo');
+  $('rec-sub').textContent = t(conTestigo ? 'rec.sub.nueva' : 'rec.sub');
+  $('form-rec-pedir').classList.toggle('oculto', conTestigo);
+  $('form-rec-cambiar').classList.toggle('oculto', !conTestigo);
+  // El correo escrito en el acceso se arrastra: no hay que teclearlo otra vez.
+  if (!conTestigo && $('email').value) $('rec-email').value = $('email').value;
+  (conTestigo ? $('rec-clave') : $('rec-email')).focus();
+}
+
+async function pedirRecuperacion(ev) {
+  ev.preventDefault();
+  const btn = $('btn-rec-pedir');
+  const antes = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = t('rec.enviando');
+  try {
+    await api('POST', '/api/v1/auth/recuperar', { email: $('rec-email').value.trim() });
+    // El mensaje es el mismo exista o no la cuenta: decir "ese correo no está
+    // registrado" convertiría este formulario en un buscador de quién tiene
+    // cuenta aquí.
+    toast(t('rec.enviado.t'), parrafo(t('rec.enviado.d')), 'bien');
+    volverAPortada();
+  } catch (e) {
+    if (!avisarSiCortaron(e)) toast(t('aviso.fallo.t'), parrafo(mensajeDeError(e)), 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = antes;
+  }
+}
+
+async function cambiarContrasena(ev) {
+  ev.preventDefault();
+  const btn = $('btn-rec-cambiar');
+  const antes = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = t('rec.guardando');
+  try {
+    await api('POST', '/api/v1/auth/recuperar/confirmar',
+      { testigo: testigoDeLaURL(), password: $('rec-clave').value });
+    toast(t('rec.hecho.t'), parrafo(t('rec.hecho.d')), 'bien');
+    history.replaceState(null, '', location.pathname);
+    $('rec-clave').value = '';
+    mostrarAcceso(false);
+  } catch (e) {
+    if (!avisarSiCortaron(e)) toast(t('aviso.fallo.t'), parrafo(mensajeDeError(e)), 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = antes;
+  }
+}
+
+/* ============ Condiciones ============ */
+
+/* Enseña el aviso cuando la redacción vigente no es la que esa persona aceptó.
+   Sin esto, versionar las condiciones no serviría de nada: nadie se enteraría
+   de que han cambiado. */
+function pintarTerminos() {
+  const caja = $('caja-terminos');
+  const vigente = estado.config?.terminos_version;
+  const alDia = !vigente || !estado.usuario || estado.usuario.terminos_version === vigente;
+  caja.classList.toggle('oculto', alDia);
+  if (!alDia) $('terminos-nuevas-d').innerHTML = textoDeCondicionesNuevas(vigente);
+}
+
+function textoDeCondicionesNuevas(version) {
+  return escapar(t('legal.nuevas.d', { version }))
+    .replace('{terminos}',
+      `<a href="/terminos.html" target="_blank" rel="noopener">${escapar(t('legal.terminos'))}</a>`);
+}
+
+async function aceptarTerminos() {
+  const btn = $('btn-aceptar-terminos');
+  btn.disabled = true;
+  try {
+    estado.usuario = await api('POST', '/api/v1/me/terminos');
+    toast(t('legal.aceptadas'), parrafo(t('legal.aceptadas.d')), 'bien');
+    pintarTerminos();
+  } catch (e) {
+    toast(t('aviso.fallo.t'), parrafo(e.message), 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 /* ============ Arranque ============ */
 
 function horaPorDefecto() {
@@ -1024,6 +1178,7 @@ function repintar() {
   actualizarSuelo();
   calcular();
   if (!$('acceso').classList.contains('oculto')) mostrarAcceso(esAlta);
+  if (!$('recuperar').classList.contains('oculto')) mostrarRecuperar(testigoDeLaURL());
   pintar();
   if (estado.resultados.length) pintarResultados();
 }
@@ -1037,6 +1192,20 @@ function conectar() {
   $('volver').addEventListener('click', volverAPortada);
   $('cambiar-modo').addEventListener('click', () => mostrarAcceso(!esAlta));
   $('form-acceso').addEventListener('submit', enviarAcceso);
+  $('olvide').addEventListener('click', () => mostrarRecuperar());
+  $('rec-volver').addEventListener('click', volverAPortada);
+  $('form-rec-pedir').addEventListener('submit', pedirRecuperacion);
+  $('form-rec-cambiar').addEventListener('submit', cambiarContrasena);
+  $('btn-aceptar-terminos').addEventListener('click', aceptarTerminos);
+
+  // El enlace del correo puede abrirse con la app ya cargada: cambiar solo el
+  // ancla no recarga nada, así que si no se atiende aquí, quien vuelve a la
+  // pestaña que ya tenía abierta no ve el formulario y cree que el enlace está
+  // roto.
+  window.addEventListener('hashchange', () => {
+    const testigo = testigoDeLaURL();
+    if (testigo) mostrarRecuperar(testigo);
+  });
 
   $('tab-buscar').addEventListener('click', () => cambiarModo('buscar'));
   $('tab-ofrecer').addEventListener('click', () => cambiarModo('ofrecer'));
@@ -1063,9 +1232,12 @@ function conectar() {
     temporizador = setTimeout(dibujarMapa, 150);
   });
 
-  // Escape cierra el acceso y vuelve a la portada.
+  // Escape cierra el acceso o la recuperación y vuelve a la portada.
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !$('acceso').classList.contains('oculto')) volverAPortada();
+    if (e.key !== 'Escape') return;
+    const abierto = !$('acceso').classList.contains('oculto') ||
+      !$('recuperar').classList.contains('oculto');
+    if (abierto) volverAPortada();
   });
 }
 
@@ -1082,6 +1254,15 @@ async function arrancar() {
     return;
   }
   repintar();
+
+  // Un enlace de recuperación manda sobre todo lo demás: quien llega desde el
+  // correo viene a una sola cosa.
+  const testigo = testigoDeLaURL();
+  if (testigo) {
+    mostrarRecuperar(testigo);
+    dibujarMapa();
+    return;
+  }
 
   if (estado.token) {
     try {

@@ -24,11 +24,11 @@ func nuevoConAvisos(t *testing.T) conAvisos {
 	t.Helper()
 	svc, identidad, grabador := newTestServiceConAvisos(t)
 
-	hostSess, err := svc.Register("Ana", "ana@example.com", testPassword, "es")
+	hostSess, err := svc.Register(RegisterInput{Name: "Ana", Email: "ana@example.com", Password: testPassword, Idioma: "es", AceptaTerminos: true})
 	if err != nil {
 		t.Fatalf("Register(host): %v", err)
 	}
-	pasSess, err := svc.Register("Bruno", "bruno@example.com", testPassword, "en")
+	pasSess, err := svc.Register(RegisterInput{Name: "Bruno", Email: "bruno@example.com", Password: testPassword, Idioma: "en", AceptaTerminos: true})
 	if err != nil {
 		t.Fatalf("Register(pasajero): %v", err)
 	}
@@ -183,7 +183,7 @@ func TestSeAvisaUnaSolaVezAlAlcanzarElNivelVerificado(t *testing.T) {
 	// quien acaba de verificarse. El aviso es por cruzar el umbral, no por
 	// cada paso.
 	svc, identidad, grabador := newTestServiceConAvisos(t)
-	sess, err := svc.Register("Ana", "ana@example.com", testPassword, "es")
+	sess, err := svc.Register(RegisterInput{Name: "Ana", Email: "ana@example.com", Password: testPassword, Idioma: "es", AceptaTerminos: true})
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestUnaComprobacionSueltaNoAnunciaNada(t *testing.T) {
 	// Con el documento solo no se llega a verificado, así que no hay nada que
 	// celebrar todavía.
 	svc, identidad, grabador := newTestServiceConAvisos(t)
-	sess, _ := svc.Register("Ana", "ana@example.com", testPassword, "es")
+	sess, _ := svc.Register(RegisterInput{Name: "Ana", Email: "ana@example.com", Password: testPassword, Idioma: "es", AceptaTerminos: true})
 
 	ctx := context.Background()
 	abierta, _, err := svc.IniciarVerificacion(ctx, sess.User.ID, trust.CheckGovernmentID)
@@ -225,7 +225,7 @@ func TestUnRechazoDeIdentidadTambienSeAvisa(t *testing.T) {
 	// Quedarse sin saber por qué no puedes usar la app es la peor experiencia
 	// posible.
 	svc, identidad, grabador := newTestServiceConAvisos(t)
-	sess, _ := svc.Register("Ana", "ana@example.com", testPassword, "es")
+	sess, _ := svc.Register(RegisterInput{Name: "Ana", Email: "ana@example.com", Password: testPassword, Idioma: "es", AceptaTerminos: true})
 
 	ctx := context.Background()
 	abierta, _, _ := svc.IniciarVerificacion(ctx, sess.User.ID, trust.CheckGovernmentID)
@@ -242,8 +242,8 @@ func TestUnRechazoDeIdentidadTambienSeAvisa(t *testing.T) {
 func TestUnCorreoCaidoNoDeshaceLaReserva(t *testing.T) {
 	// La garantía que sostiene el diseño: los avisos son aparte.
 	svc, identidad, _ := newTestServiceConAvisos(t)
-	hostSess, _ := svc.Register("Ana", "ana@example.com", testPassword, "es")
-	pasSess, _ := svc.Register("Bruno", "bruno@example.com", testPassword, "en")
+	hostSess, _ := svc.Register(RegisterInput{Name: "Ana", Email: "ana@example.com", Password: testPassword, Idioma: "es", AceptaTerminos: true})
+	pasSess, _ := svc.Register(RegisterInput{Name: "Bruno", Email: "bruno@example.com", Password: testPassword, Idioma: "en", AceptaTerminos: true})
 	acreditar(t, svc, identidad, hostSess.User.ID, trust.LevelVerificado)
 	acreditar(t, svc, identidad, pasSess.User.ID, trust.LevelVerificado)
 

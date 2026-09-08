@@ -28,6 +28,10 @@ type Server struct {
 	// persona está presente cuando el proveedor real de identidad está
 	// configurado, y es quien valida la firma de sus avisos.
 	persona *trust.Persona
+	// limites pone techo a las rutas que se pueden abusar. Nunca es nulo:
+	// arrancar sin límites sería arrancar con el formulario de acceso abierto
+	// de par en par.
+	limites *limites
 }
 
 // NewServer construye el manejador HTTP con todas las rutas registradas.
@@ -35,7 +39,7 @@ type Server struct {
 // Las rutas que actúan en nombre de alguien exigen un token: la identidad sale
 // siempre del token verificado, nunca del cuerpo de la petición.
 func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger, opts ...Option) http.Handler {
-	s := &Server{svc: svc, log: log}
+	s := &Server{svc: svc, log: log, limites: limitesPorDefecto()}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -53,13 +57,18 @@ func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger, o
 	// lo que la protege es la firma del cuerpo, no un token.
 	mux.HandleFunc("POST /api/v1/webhooks/identidad", s.webhookPersona)
 
-	// Acceso
-	mux.HandleFunc("POST /api/v1/auth/register", s.register)
-	mux.HandleFunc("POST /api/v1/auth/login", s.login)
+	// Acceso. Las cuatro llevan techo de peticiones: son las únicas rutas que
+	// alguien sin cuenta puede repetir sin límite, y las cuatro dan pistas
+	// —una sesión, un correo que existe— a quien insiste lo suficiente.
+	mux.HandleFunc("POST /api/v1/auth/register", s.limitarPorIP(s.register))
+	mux.HandleFunc("POST /api/v1/auth/login", s.limitarPorIP(s.login))
+	mux.HandleFunc("POST /api/v1/auth/recuperar", s.limitarPorIP(s.pedirRecuperacion))
+	mux.HandleFunc("POST /api/v1/auth/recuperar/confirmar", s.limitarPorIP(s.confirmarRecuperacion))
 	mux.Handle("GET /api/v1/me", protegida(s.me))
 	mux.Handle("GET /api/v1/me/bookings", protegida(s.myBookings))
 	mux.Handle("GET /api/v1/me/resumen", protegida(s.resumen))
 	mux.Handle("GET /api/v1/me/trips", protegida(s.misTrayectos))
+	mux.Handle("POST /api/v1/me/terminos", protegida(s.aceptarTerminos))
 
 	// Perfiles públicos: se ve con quién vas a compartir coche.
 	mux.HandleFunc("GET /api/v1/users/{id}", s.getUser)
@@ -128,6 +137,9 @@ type registerRequest struct {
 	// Idioma en el que se le escribirá. Lo manda la interfaz según en qué
 	// idioma se esté usando.
 	Idioma string `json:"idioma"`
+	// AceptaTerminos es la casilla del formulario de alta. Sin ella no hay
+	// cuenta: es la única constancia de que esa persona vio las condiciones.
+	AceptaTerminos bool `json:"acepta_terminos"`
 }
 
 func (s *Server) register(w http.ResponseWriter, r *http.Request) {
@@ -135,7 +147,16 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	sess, err := s.svc.Register(req.Name, req.Email, req.Password, req.Idioma)
+	if !s.dejaCuenta(w, req.Email) {
+		return
+	}
+	sess, err := s.svc.Register(service.RegisterInput{
+		Name:           req.Name,
+		Email:          req.Email,
+		Password:       req.Password,
+		Idioma:         req.Idioma,
+		AceptaTerminos: req.AceptaTerminos,
+	})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -153,6 +174,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
+	if !s.dejaCuenta(w, req.Email) {
+		return
+	}
 	sess, err := s.svc.Login(req.Email, req.Password)
 	if err != nil {
 		writeError(w, err)
@@ -161,8 +185,58 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sess)
 }
 
+type recuperarRequest struct {
+	Email string `json:"email"`
+}
+
+// pedirRecuperacion manda el enlace para cambiar la contraseña.
+//
+// Contesta 202 exista o no ese correo. Un 404 aquí convertiría el formulario en
+// un buscador de quién tiene cuenta.
+func (s *Server) pedirRecuperacion(w http.ResponseWriter, r *http.Request) {
+	var req recuperarRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	if !s.dejaCuenta(w, req.Email) {
+		return
+	}
+	if err := s.svc.SolicitarRecuperacion(req.Email); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"estado": "enviado_si_existe"})
+}
+
+type confirmarRecuperacionRequest struct {
+	Testigo  string `json:"testigo"`
+	Password string `json:"password"`
+}
+
+func (s *Server) confirmarRecuperacion(w http.ResponseWriter, r *http.Request) {
+	var req confirmarRecuperacionRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	if err := s.svc.CambiarContrasenaConTestigo(req.Testigo, req.Password); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"estado": "cambiada"})
+}
+
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	u, err := s.svc.GetUser(actor(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, u)
+}
+
+// aceptarTerminos renueva la aceptación cuando se publica una redacción nueva.
+func (s *Server) aceptarTerminos(w http.ResponseWriter, r *http.Request) {
+	u, err := s.svc.AceptarTerminos(actor(r))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -500,6 +574,20 @@ func writeError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrViajeNoCompletable), errors.Is(err, store.ErrApuntesDuplicados):
 		writeProblem(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrTerminosNoAceptados):
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error":            err.Error(),
+			"terminos_version": domain.VersionTerminos,
+		})
+	case errors.Is(err, service.ErrRecuperacionInvalida):
+		// 410: el enlace existió o pudo existir, pero ya no vale. Pedir otro es
+		// lo único que hay que hacer. Va con código estable porque el texto que
+		// lee la persona lo pone la interfaz, en su idioma: enseñar el mensaje
+		// del servidor tal cual le saca el español a quien usa la app en inglés.
+		writeJSON(w, http.StatusGone, map[string]string{
+			"error":  err.Error(),
+			"codigo": "enlace_no_valido",
+		})
 	case errors.Is(err, service.ErrNoSeats):
 		writeProblem(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrResponsabilidadNoAceptada):

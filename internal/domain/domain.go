@@ -60,7 +60,16 @@ type User struct {
 	RatingCount int       `json:"rating_count"`
 	RideCount   int       `json:"ride_count"`
 	CreatedAt   time.Time `json:"created_at"`
+	// TerminosVersion es la redacción de las condiciones que aceptó, y
+	// TerminosAt cuándo. Se guarda la versión y no un simple "sí": dentro de
+	// dos años, "aceptó las condiciones" no significa nada si no se sabe
+	// cuáles.
+	TerminosVersion string     `json:"terminos_version"`
+	TerminosAt      *time.Time `json:"terminos_at,omitempty"`
 }
+
+// TerminosAlDia indica si esta persona aceptó la redacción vigente.
+func (u *User) TerminosAlDia() bool { return u.TerminosVersion == VersionTerminos }
 
 // IdiomaPorDefecto es el inglés: el servicio opera en Austin.
 const IdiomaPorDefecto = "en"

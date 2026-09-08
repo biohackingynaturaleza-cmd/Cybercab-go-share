@@ -23,11 +23,17 @@ const demoPassword = "cybercab-demo-2026"
 // seedDemo carga un par de usuarios y un trayecto de ejemplo para poder probar
 // la API nada más arrancar.
 func seedDemo(ctx context.Context, svc *service.Service) error {
-	host, err := svc.Register("Ana", "ana@example.com", demoPassword, "es")
+	host, err := svc.Register(service.RegisterInput{
+		Name: "Ana", Email: "ana@example.com", Password: demoPassword,
+		Idioma: "es", AceptaTerminos: true,
+	})
 	if err != nil {
 		return err
 	}
-	if _, err := svc.Register("Bruno", "bruno@example.com", demoPassword, "en"); err != nil {
+	if _, err := svc.Register(service.RegisterInput{
+		Name: "Bruno", Email: "bruno@example.com", Password: demoPassword,
+		Idioma: "en", AceptaTerminos: true,
+	}); err != nil {
 		return err
 	}
 

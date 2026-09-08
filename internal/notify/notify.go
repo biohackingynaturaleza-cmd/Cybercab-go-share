@@ -43,6 +43,11 @@ const (
 	SucesoIncidenciaAceptada Suceso = "incidencia_aceptada"
 	// SucesoIncidenciaDiscutida avisa de que la niegan.
 	SucesoIncidenciaDiscutida Suceso = "incidencia_discutida"
+	// SucesoRecuperacionPedida lleva el enlace para poner una contraseña nueva.
+	SucesoRecuperacionPedida Suceso = "recuperacion_pedida"
+	// SucesoContrasenaCambiada avisa de que la contraseña acaba de cambiar. Es
+	// el aviso que descubre un robo de cuenta.
+	SucesoContrasenaCambiada Suceso = "contrasena_cambiada"
 )
 
 // Aviso es un mensaje concreto para una persona concreta.

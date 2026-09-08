@@ -559,3 +559,40 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 .cerrar .campos-2 { margin-bottom: 10px; }
 .cerrar .acciones { display: flex; gap: 8px; }
 .cerrar .acciones .btn-1 { flex: 1; }
+
+/* ============ Casilla de aceptación ============ */
+
+/* La casilla de las condiciones. Grande y clicable en toda su superficie: es el
+   único punto del alta donde se pide un acto consciente, y una casilla de 13px
+   en un móvil no es un acto consciente, es un accidente.
+   Deshace el estilo de etiqueta de campo —mayúsculas, monoespaciada, minúscula—
+   porque esto no rotula un campo: es una frase que hay que poder leer. */
+.casilla {
+  display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start;
+  margin: 14px 0 2px; cursor: pointer;
+  font: 13px/1.5 var(--sans);
+  text-transform: none; letter-spacing: normal;
+  color: var(--suave);
+}
+.casilla input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none;
+  width: 18px; height: 18px; margin: 1px 0 0; flex: none;
+  background: var(--capa-1); border: 1px solid var(--borde-2); border-radius: 4px;
+  cursor: pointer; transition: border-color var(--paso), background var(--paso);
+}
+.casilla input[type="checkbox"]:hover { border-color: var(--acento); }
+/* La marca va como imagen de fondo y no como pseudoelemento: los navegadores no
+   pintan ::after dentro de un input, así que la casilla se quedaba en un
+   cuadrado de color sin señal de estar marcada. */
+.casilla input[type="checkbox"]:checked {
+  background: var(--acento)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='%23032a30' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / 13px 13px no-repeat;
+  border-color: var(--acento);
+}
+.casilla a { color: var(--acento); }
+.casilla a:hover { color: var(--acento-alto); }
+
+.pie-legal { margin-top: 10px; }
+.pie-legal a { color: var(--tenue); text-decoration: none; }
+.pie-legal a:hover { color: var(--acento); }

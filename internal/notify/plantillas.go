@@ -112,6 +112,28 @@ blurry photo or a document that is hard to read.
 
 Try again: {enlace}`,
 		},
+		SucesoRecuperacionPedida: {
+			"Reset your password",
+			`Hi {nombre},
+
+Someone asked to reset the password of this account. Open this link to choose
+a new one — it works once and expires in {minutos} minutes:
+
+{enlace}
+
+If it was not you, ignore this email. Nothing changes until that link is used,
+and your current password still works.`,
+		},
+		SucesoContrasenaCambiada: {
+			"Your password has changed",
+			`Hi {nombre},
+
+The password of your account has just been changed, and any other reset links
+have stopped working.
+
+If this was not you, reset your password now to lock the account again:
+{enlace}`,
+		},
 	},
 
 	"es": {
@@ -214,6 +236,28 @@ La comprobación de identidad no ha salido adelante. Puedes volver a
 intentarlo: casi siempre es una foto movida o un documento poco legible.
 
 Inténtalo otra vez: {enlace}`,
+		},
+		SucesoRecuperacionPedida: {
+			"Cambia tu contraseña",
+			`Hola {nombre}:
+
+Alguien ha pedido cambiar la contraseña de esta cuenta. Abre este enlace para
+elegir una nueva; sirve una sola vez y caduca en {minutos} minutos:
+
+{enlace}
+
+Si no has sido tú, ignora este correo. No cambia nada hasta que se use ese
+enlace, y tu contraseña de siempre sigue valiendo.`,
+		},
+		SucesoContrasenaCambiada: {
+			"Tu contraseña ha cambiado",
+			`Hola {nombre}:
+
+La contraseña de tu cuenta acaba de cambiar, y cualquier otro enlace de
+recuperación ha dejado de servir.
+
+Si no has sido tú, cambia la contraseña ahora para recuperar el control de la
+cuenta: {enlace}`,
 		},
 	},
 }

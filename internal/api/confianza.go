@@ -18,6 +18,11 @@ func (s *Server) iniciarVerificacion(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
+	// Cada verificación que se abre le cuesta dinero a la plataforma, así que
+	// el techo aquí protege la factura tanto como el servidor.
+	if !s.dejaVerificacion(w, actor(r)) {
+		return
+	}
 	sess, check, err := s.svc.IniciarVerificacion(r.Context(), actor(r), req.Kind)
 	if err != nil {
 		writeError(w, err)

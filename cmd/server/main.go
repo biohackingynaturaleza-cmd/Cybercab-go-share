@@ -240,6 +240,12 @@ func opcionesDeServidor(identidad trust.Provider, persona *trust.Persona) []api.
 	if persona != nil {
 		opts = append(opts, api.WithPersona(persona))
 	}
+	// Detrás de un proxy, la IP del cliente llega en una cabecera y no en la
+	// conexión. Sin esto, todo el tráfico contaría como una sola dirección y el
+	// límite de peticiones dejaría fuera a todo el mundo a la vez.
+	if os.Getenv("TRUST_PROXY") == "1" {
+		opts = append(opts, api.WithProxyDeConfianza())
+	}
 	if os.Getenv("ENV") == "production" {
 		return opts
 	}

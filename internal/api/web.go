@@ -88,6 +88,7 @@ func (s *Server) zonas(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) config(w http.ResponseWriter, _ *http.Request) {
 	t := s.svc.Tariff()
 	writeJSON(w, http.StatusOK, map[string]any{
+		"terminos_version": domain.VersionTerminos,
 		"tarifa": map[string]int64{
 			"base_cents":       t.BaseCents,
 			"por_km_cents":     t.PerKmCents,

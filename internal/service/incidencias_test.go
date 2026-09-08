@@ -137,7 +137,7 @@ func TestSoloQuienOrganizaDeclara(t *testing.T) {
 
 func TestNoSePuedeCulparAQuienNoViajaba(t *testing.T) {
 	e := viajeCerrado(t)
-	tercero, _ := e.svc.Register("Eva", "eva@example.com", testPassword, "es")
+	tercero, _ := e.svc.Register(RegisterInput{Name: "Eva", Email: "eva@example.com", Password: testPassword, Idioma: "es", AceptaTerminos: true})
 
 	_, err := e.svc.DeclararIncidencia(DeclararIncidenciaInput{
 		TripID: e.trip.ID, DeclaranteID: e.host.ID, AtribuidaA: tercero.User.ID,

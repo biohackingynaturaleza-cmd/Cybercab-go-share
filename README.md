@@ -192,9 +192,16 @@ no se haya viajado todavía— el ahorro *previsto* de los viajes ya reservados.
 ### Acceso
 | Método | Ruta | Qué hace |
 |---|---|---|
-| `POST` | `/api/v1/auth/register` | Alta con contraseña |
+| `POST` | `/api/v1/auth/register` | Alta con contraseña (exige aceptar las condiciones) |
 | `POST` | `/api/v1/auth/login` | Inicio de sesión |
+| `POST` | `/api/v1/auth/recuperar` | Pedir el enlace para cambiar la contraseña |
+| `POST` | `/api/v1/auth/recuperar/confirmar` | Gastar el enlace y poner la nueva |
 | `GET` | `/api/v1/me` | Quién soy |
+| `POST` | `/api/v1/me/terminos` | Aceptar la redacción vigente de las condiciones |
+
+Las cuatro rutas de acceso llevan techo de peticiones: son las únicas que
+alguien sin cuenta puede repetir sin límite. Ver
+[Límite de peticiones](#límite-de-peticiones).
 
 ### Confianza
 | Método | Ruta | Qué hace |
@@ -238,6 +245,8 @@ internal/routing/    rutas reales por carretera (OSRM) con respaldo
 internal/matching/   qué trayectos encajan con una búsqueda, y en qué orden
 internal/fleet/      frontera con la flota de robotaxis
 internal/billing/    libro de apuntes, compensación y liquidación
+internal/notify/     avisos por correo, bilingües
+internal/ratelimit/  techo de peticiones por clave
 internal/simulacion/ medición de la ocupación de la flota
 internal/store/      persistencia (memoria o Postgres+PostGIS)
 internal/service/    lógica de negocio
@@ -265,6 +274,7 @@ rutas, de proveedor de identidad o de flota es implementar una interfaz.
 | `FARE_PER_MINUTE_CENTS` | `15` | Coste por minuto |
 | `FARE_MINIMUM_CENTS` | `500` | Importe mínimo del viaje |
 | `AVG_SPEED_KMH` | `45` | Velocidad media de respaldo |
+| `TRUST_PROXY` | — | `1` lee la IP de `X-Forwarded-For`. Solo con un proxy propio delante |
 
 > Las tarifas son una **estimación de mercado**, no precios oficiales de Tesla.
 
@@ -347,14 +357,78 @@ Dos propiedades que el código garantiza:
 
 Ver [`docs/modelo-de-negocio.md`](docs/modelo-de-negocio.md).
 
+## Recuperar la contraseña
+
+Quien olvida la contraseña pide un enlace desde el propio formulario de entrada.
+Tres reglas lo sostienen:
+
+- **Lo que se guarda es el hash del testigo, no el testigo.** Quien consiga leer
+  la tabla `password_resets` no puede entrar en ninguna cuenta con ella, igual
+  que no puede con la columna de contraseñas.
+- **Sirve una vez y caduca en una hora.** El "una vez" lo garantiza la propia
+  sentencia (`UPDATE … WHERE usada_at IS NULL`), no un `if` previo: comprobar y
+  luego escribir deja una ventana en la que dos peticiones gastan el mismo
+  enlace. Al usarlo se anulan además los demás enlaces vivos de esa persona.
+- **La respuesta es la misma exista o no el correo.** Un "ese email no está
+  registrado" convertiría el formulario en un buscador de quién tiene cuenta
+  aquí, que en una app donde la gente se sube al mismo coche no le corresponde
+  a nadie.
+
+Cambiar la contraseña manda un aviso a su dueño. Es lo que descubre un robo de
+cuenta: si alguien la cambia sin ser su titular, el titular se entera en el acto.
+
+## Límite de peticiones
+
+Sin techo, el formulario de acceso es un sitio donde probar contraseñas a
+millones y el de registro una forma de llenar la base de datos de cuentas
+falsas. El limitador (`internal/ratelimit`) reparte fichas por clave con un cubo
+que se rellena solo — y no una ventana fija, que deja pasar el doble del límite
+justo en su frontera, que es el momento que aprovecha quien va en serio.
+
+| Qué se limita | Techo | Por qué esa clave |
+|---|---|---|
+| Rutas de acceso, por IP | 40 / 10 min | Frena a quien dispara desde una máquina |
+| Registro, login y recuperación, por correo | 6 / 15 min | Frena a quien reparte los intentos contra una misma cuenta desde muchas máquinas, que al de IP se le escapa |
+| Abrir una verificación, por usuario | 10 / hora | Cada una cuesta dinero: aquí el techo protege la factura |
+
+El corte devuelve `429` con `Retry-After`, y la interfaz lo traduce a "espera N
+segundos" en el idioma de quien lo lee. Decir "no" sin decir "cuándo" solo
+consigue que se reintente a ciegas.
+
+Vive en el proceso: basta mientras la app corra en una máquina. Cuando deje de
+ser así habrá que llevarlo a un almacén compartido.
+
+## Condiciones del servicio
+
+Las condiciones y la política de privacidad se sirven desde el propio binario
+(`/terminos.html`, `/privacidad.html`), en inglés y español, y están versionadas
+por fecha (`domain.VersionTerminos`). No se registra a nadie sin aceptación
+explícita: la casilla no viene premarcada y el servidor rechaza el alta sin
+ella, con `422` y la versión que hay que aceptar.
+
+De cada persona se guarda **qué redacción aceptó y cuándo**, no un simple "sí":
+una casilla marcada sin versión ni fecha no acredita nada el día que alguien
+discuta a qué se comprometió. Al publicar una redacción nueva, la app enseña un
+aviso y `POST /api/v1/me/terminos` renueva la aceptación; sin ese endpoint,
+versionar las condiciones dejaría a todo el mundo con una aceptación caducada y
+sin forma de renovarla.
+
+> El texto describe con exactitud cómo funciona el servicio, pero **es un
+> borrador**: falta que lo revise un abogado de Texas y concretar la entidad y
+> las direcciones de contacto. Las dos páginas lo dicen en un aviso visible;
+> quitarlo es una edición de una línea cuando el abogado firme.
+
 ## Lo que falta
 
 1. **Dar de alta la cuenta de Persona.** El código está; falta crear la cuenta,
    la plantilla y poner las variables de entorno.
-2. **Valoraciones y denuncias.** El nivel veterano ya las cuenta, pero todavía
+2. **Revisión legal de las condiciones y la privacidad.** El texto está escrito
+   y describe el servicio real; falta un abogado de Texas, la entidad y las
+   direcciones de contacto.
+3. **Valoraciones y denuncias.** El nivel veterano ya las cuenta, pero todavía
    no hay forma de emitirlas.
-3. **Pagos.** Cobrar el reparto y liquidarlo con quien organiza.
-4. **Compartir el viaje en tiempo real** con un contacto de confianza, y botón
+4. **Pagos.** Cobrar el reparto y liquidarlo con quien organiza.
+5. **Compartir el viaje en tiempo real** con un contacto de confianza, y botón
    de emergencia. En un coche sin conductor pesa más que en uno con conductor.
-5. **Un proveedor de identidad real.** Es lo único que separa la app de poder
+6. **Un proveedor de identidad real.** Es lo único que separa la app de poder
    admitir usuarios de verdad.

@@ -102,12 +102,12 @@ func newFixture(t *testing.T, vehicle domain.VehicleType) fixture {
 	t.Helper()
 	svc, identidad := newTestService(t)
 
-	hostSess, err := svc.Register("Ana", "ana@example.com", testPassword, "es")
+	hostSess, err := svc.Register(RegisterInput{Name: "Ana", Email: "ana@example.com", Password: testPassword, Idioma: "es", AceptaTerminos: true})
 	if err != nil {
 		t.Fatalf("Register(host): %v", err)
 	}
 	host := hostSess.User
-	riderSess, err := svc.Register("Bruno", "bruno@example.com", testPassword, "es")
+	riderSess, err := svc.Register(RegisterInput{Name: "Bruno", Email: "bruno@example.com", Password: testPassword, Idioma: "es", AceptaTerminos: true})
 	if err != nil {
 		t.Fatalf("Register(rider): %v", err)
 	}
@@ -244,7 +244,7 @@ func TestCancelarUnaReservaLiberaLaPlaza(t *testing.T) {
 
 func TestNoSePuedeReservarSinPlazas(t *testing.T) {
 	f := newFixture(t, domain.VehicleCybercab)
-	terceroSess, _ := f.svc.Register("Clara", "clara@example.com", testPassword, "es")
+	terceroSess, _ := f.svc.Register(RegisterInput{Name: "Clara", Email: "clara@example.com", Password: testPassword, Idioma: "es", AceptaTerminos: true})
 	tercero := terceroSess.User
 	acreditar(t, f.svc, f.identidad, tercero.ID, trust.LevelVerificado)
 
