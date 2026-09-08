@@ -70,6 +70,12 @@ type Store interface {
 	PendingEntries() ([]billing.Entry, error)
 	MarkSettled(entryIDs []string, settlementID string) error
 
+	// Incidencias posteriores al viaje
+	CreateIncidencia(i *domain.Incidencia) error
+	GetIncidencia(id string) (*domain.Incidencia, error)
+	UpdateIncidencia(i *domain.Incidencia) error
+	IncidenciasDe(userID string) ([]*domain.Incidencia, error)
+
 	// Bloqueos entre personas
 	CreateBlock(blockerID, blockedID string) error
 	DeleteBlock(blockerID, blockedID string) error
@@ -85,11 +91,12 @@ type Memory struct {
 	mu    sync.RWMutex
 	users map[string]*domain.User
 	// byEmail indexa por email en minúsculas para garantizar la unicidad.
-	byEmail  map[string]string
-	trips    map[string]*domain.Trip
-	bookings map[string]*domain.Booking
-	checks   map[string]*trust.Check
-	entries  map[string]*billing.Entry
+	byEmail     map[string]string
+	trips       map[string]*domain.Trip
+	bookings    map[string]*domain.Booking
+	checks      map[string]*trust.Check
+	entries     map[string]*billing.Entry
+	incidencias map[string]*domain.Incidencia
 	// blocks son pares "bloqueador|bloqueado".
 	blocks map[string]bool
 	// tripOrder preserva el orden de alta para que los listados sean estables.
@@ -99,13 +106,14 @@ type Memory struct {
 // NewMemory crea un almacén vacío.
 func NewMemory() *Memory {
 	return &Memory{
-		users:    map[string]*domain.User{},
-		byEmail:  map[string]string{},
-		trips:    map[string]*domain.Trip{},
-		bookings: map[string]*domain.Booking{},
-		checks:   map[string]*trust.Check{},
-		entries:  map[string]*billing.Entry{},
-		blocks:   map[string]bool{},
+		users:       map[string]*domain.User{},
+		byEmail:     map[string]string{},
+		trips:       map[string]*domain.Trip{},
+		bookings:    map[string]*domain.Booking{},
+		checks:      map[string]*trust.Check{},
+		entries:     map[string]*billing.Entry{},
+		incidencias: map[string]*domain.Incidencia{},
+		blocks:      map[string]bool{},
 	}
 }
 

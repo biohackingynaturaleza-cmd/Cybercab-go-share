@@ -91,48 +91,89 @@ func TestLaComisionNoHaceGanarDineroAQuienOrganiza(t *testing.T) {
 	}
 }
 
-func TestElImporteRealDeLaFlotaSustituyeALaEstimacion(t *testing.T) {
-	// Lo que de verdad cobró Tesla manda sobre nuestra estimación.
-	estimado := escenarioEstimado(t)
-	real := estimado + 500
-
-	e, entries := viajeCompletado(t, real)
-
-	fb, err := e.svc.FareBreakdownFor(e.trip.ID)
-	if err != nil {
-		t.Fatalf("FareBreakdownFor: %v", err)
-	}
-	_ = fb
-	var coste int64
-	for _, en := range entries {
-		if en.Kind == billing.EntryCostShare {
-			coste = en.AmountCents
+func TestSiLaFlotaCobraMasElPasajeroNoPagaMas(t *testing.T) {
+	// La regla que quita el agujero de confianza: el precio que aceptó el
+	// pasajero no sube nunca. Si la flota cobra más, lo absorbe quien
+	// organiza, que es quien vio el presupuesto y eligió la ruta. Inflar la
+	// tarifa al cerrar deja de dar dinero.
+	_, pactado := viajeCompletado(t, 0)
+	var precioPactado int64
+	for _, e := range pactado {
+		if e.Kind == billing.EntryCostShare {
+			precioPactado = e.AmountCents
 		}
 	}
-	// Con un viaje más caro, la parte del pasajero sube.
-	e2, entriesBaratos := viajeCompletado(t, 0)
-	_ = e2
-	var costeBarato int64
-	for _, en := range entriesBaratos {
-		if en.Kind == billing.EntryCostShare {
-			costeBarato = en.AmountCents
+
+	// El mismo viaje, pero la flota cobra el doble.
+	_, caro := viajeCompletado(t, 3000)
+	var precioCaro int64
+	for _, e := range caro {
+		if e.Kind == billing.EntryCostShare {
+			precioCaro = e.AmountCents
 		}
 	}
-	if coste <= costeBarato {
-		t.Fatalf("con importe real %d la parte es %d, y con la estimación %d es %d: debería subir",
-			real, coste, estimado, costeBarato)
+
+	if precioCaro != precioPactado {
+		t.Fatalf("el pasajero pactó %d y con la tarifa inflada paga %d: no puede subir",
+			precioPactado, precioCaro)
 	}
 }
 
-// escenarioEstimado devuelve el coste estimado de un trayecto del escenario.
-func escenarioEstimado(t *testing.T) int64 {
-	t.Helper()
-	e := nuevoEscenario(t, domain.VehicleModelY, trust.LevelNuevo)
-	fb, err := e.svc.FareBreakdownFor(e.trip.ID)
-	if err != nil {
-		t.Fatalf("FareBreakdownFor: %v", err)
+func TestSiLaFlotaCobraMenosElPasajeroPagaMenos(t *testing.T) {
+	// Si pagara lo pactado cuando el viaje salió más barato, quien organiza
+	// ganaría dinero, y eso rompe la excepción de gastos compartidos.
+	_, pactado := viajeCompletado(t, 0)
+	var precioPactado int64
+	for _, e := range pactado {
+		if e.Kind == billing.EntryCostShare {
+			precioPactado = e.AmountCents
+		}
 	}
-	return fb.TotalCents
+
+	// La flota cobra menos de lo que el pasajero había pactado.
+	_, barato := viajeCompletado(t, precioPactado/2)
+	var precioBarato int64
+	for _, e := range barato {
+		if e.Kind == billing.EntryCostShare {
+			precioBarato = e.AmountCents
+		}
+	}
+
+	if precioBarato >= precioPactado {
+		t.Fatalf("pactó %d, la flota cobró %d y paga %d: debería bajar",
+			precioPactado, precioPactado/2, precioBarato)
+	}
+}
+
+func TestLoQueAportanLosPasajerosNuncaSuperaElCoste(t *testing.T) {
+	// La invariante de la que depende que esto no sea transporte comercial.
+	for _, importeReal := range []int64{0, 500, 1200, 3000} {
+		e, entries := viajeCompletado(t, importeReal)
+
+		var aportado int64
+		for _, en := range entries {
+			if en.Kind == billing.EntryCostShare {
+				aportado += en.AmountCents
+			}
+		}
+		trip, _ := e.svc.GetTrip(e.trip.ID)
+		coste := e.svc.costeDelViaje(trip)
+
+		if aportado > coste {
+			t.Errorf("con importe real %d: los pasajeros aportan %d sobre un coste de %d",
+				importeReal, aportado, coste)
+		}
+	}
+}
+
+func TestUnImporteNegativoSeRechaza(t *testing.T) {
+	e := nuevoEscenario(t, domain.VehicleModelY, trust.LevelNuevo)
+	_, _, err := e.svc.CompletarViaje(CierreInput{
+		TripID: e.trip.ID, HostID: e.host.ID, ImporteRealCents: -100,
+	})
+	if !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("error = %v, esperaba un error de validación", err)
+	}
 }
 
 func TestNoSePuedeCerrarDosVecesElMismoViaje(t *testing.T) {

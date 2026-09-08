@@ -4,6 +4,7 @@ package domain
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/geo"
@@ -100,6 +101,13 @@ type Trip struct {
 	Destination Place  `json:"destination"`
 	// Route es la polilínea completa: origen, waypoints y destino.
 	Route geo.Route `json:"route"`
+	// TarifaDeclaradaCents es lo que la app de la flota presupuestó para este
+	// viaje. Se declara al publicar, no al cerrar: así el pasajero ve su parte
+	// exacta antes de comprometerse y no se le puede subir después.
+	TarifaDeclaradaCents int64 `json:"tarifa_declarada_cents,omitempty"`
+	// TarifaRealCents es lo que la flota cobró de verdad. Solo mueve la parte
+	// de quien organiza; las de los pasajeros ya estaban cerradas.
+	TarifaRealCents int64 `json:"tarifa_real_cents,omitempty"`
 	// DurationMin es el tiempo estimado del trayecto. Con rutas reales lo da
 	// el motor de rutas; si no, se estima con una velocidad media.
 	DurationMin float64 `json:"duration_min"`
@@ -208,3 +216,90 @@ type Booking struct {
 
 // SharedKm es la distancia que el pasajero recorre dentro del trayecto.
 func (b *Booking) SharedKm() float64 { return b.DropoffAlongKm - b.PickupAlongKm }
+
+// --- Incidencias ---
+
+// TipoIncidencia es lo que la flota cobra aparte del viaje.
+type TipoIncidencia string
+
+const (
+	// IncidenciaLimpieza es la tasa que cobra la flota por dejar el vehículo
+	// sucio. Tesla la carga a quien pidió el coche, aunque lo ensuciara otro.
+	IncidenciaLimpieza TipoIncidencia = "limpieza"
+	// IncidenciaDanos cubre desperfectos.
+	IncidenciaDanos TipoIncidencia = "danos"
+	// IncidenciaOtra es cualquier otro cargo posterior al viaje.
+	IncidenciaOtra TipoIncidencia = "otra"
+)
+
+// Valid indica si el tipo es conocido.
+func (t TipoIncidencia) Valid() bool {
+	switch t {
+	case IncidenciaLimpieza, IncidenciaDanos, IncidenciaOtra:
+		return true
+	}
+	return false
+}
+
+// EstadoIncidencia es en qué punto está una incidencia.
+type EstadoIncidencia string
+
+const (
+	// IncidenciaDeclarada la ha puesto quien organiza y espera respuesta.
+	IncidenciaDeclarada EstadoIncidencia = "declarada"
+	// IncidenciaAceptada la ha reconocido quien la causó, y se cobra.
+	IncidenciaAceptada EstadoIncidencia = "aceptada"
+	// IncidenciaDiscutida la niega quien la causó. No se cobra: nadie puede
+	// cargarle dinero a otro por su cuenta.
+	IncidenciaDiscutida EstadoIncidencia = "discutida"
+	// IncidenciaRetirada la ha retirado quien la declaró.
+	IncidenciaRetirada EstadoIncidencia = "retirada"
+)
+
+// Incidencia es un cargo posterior al viaje que quien organiza quiere
+// repercutir a quien lo causó.
+//
+// No se cobra sola: hasta que la otra parte la acepta, no existe como deuda.
+// Cargarle dinero a alguien por su sola palabra sería un agujero evidente, y la
+// app no puede arbitrar quién tiene razón.
+type Incidencia struct {
+	ID           string           `json:"id"`
+	TripID       string           `json:"trip_id"`
+	DeclaranteID string           `json:"declarante_id"`
+	AtribuidaA   string           `json:"atribuida_a"`
+	Tipo         TipoIncidencia   `json:"tipo"`
+	ImporteCents int64            `json:"importe_cents"`
+	Descripcion  string           `json:"descripcion,omitempty"`
+	Estado       EstadoIncidencia `json:"estado"`
+	CreatedAt    time.Time        `json:"created_at"`
+	ResueltaAt   time.Time        `json:"resuelta_at,omitzero"`
+}
+
+// Viva indica si la incidencia sigue esperando respuesta.
+func (i *Incidencia) Viva() bool {
+	return i.Estado == IncidenciaDeclarada || i.Estado == IncidenciaDiscutida
+}
+
+// TopeIncidenciaCents acota lo que se puede reclamar por una incidencia.
+//
+// La tasa más cara que cobra la flota son 150 $ por suciedad severa; dejar el
+// campo abierto permitiría reclamar cantidades absurdas y convertir la app en
+// una herramienta de extorsión entre desconocidos.
+const TopeIncidenciaCents int64 = 20000
+
+// Validate comprueba la incidencia antes de guardarla.
+func (i *Incidencia) Validate() error {
+	switch {
+	case i.TripID == "" || i.DeclaranteID == "" || i.AtribuidaA == "":
+		return errors.New("faltan datos de la incidencia")
+	case i.DeclaranteID == i.AtribuidaA:
+		return errors.New("no puedes atribuirte una incidencia a ti mismo")
+	case !i.Tipo.Valid():
+		return errors.New("tipo de incidencia desconocido")
+	case i.ImporteCents <= 0:
+		return errors.New("el importe debe ser positivo")
+	case i.ImporteCents > TopeIncidenciaCents:
+		return fmt.Errorf("el importe supera el máximo reclamable (%d)", TopeIncidenciaCents)
+	}
+	return nil
+}

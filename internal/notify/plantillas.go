@@ -71,6 +71,38 @@ two-seat Cybercab.
 
 {enlace}`,
 		},
+		SucesoIncidenciaDeclarada: {
+			"A {importe} charge from your {destino} ride",
+			`Hi {nombre},
+
+After the trip to {destino} on {salida}, the fleet charged {importe} to the
+person who booked the ride. They say it was down to you:
+
+{motivo}
+
+If that is right, accept it and it goes on your next settlement. If it is not,
+say so — nothing is charged to you until you agree.
+
+{enlace}`,
+		},
+		SucesoIncidenciaAceptada: {
+			"Your {importe} claim was accepted",
+			`Hi {nombre},
+
+The {importe} charge you passed on has been accepted. It will reach you in the
+next settlement.
+
+{enlace}`,
+		},
+		SucesoIncidenciaDiscutida: {
+			"Your {importe} claim is disputed",
+			`Hi {nombre},
+
+The {importe} charge you passed on has been disputed, so nothing has been
+charged. We cannot decide who is right, so a person will look at it.
+
+{enlace}`,
+		},
 		SucesoIdentidadRechazada: {
 			"We could not verify your identity",
 			`Hi {nombre},
@@ -138,6 +170,39 @@ Busca otro viaje: {enlace}`,
 
 Ya tienes la identidad acreditada. Puedes compartir cualquier vehículo,
 incluido el Cybercab biplaza.
+
+{enlace}`,
+		},
+		SucesoIncidenciaDeclarada: {
+			"Un cargo de {importe} de tu viaje a {destino}",
+			`Hola {nombre}:
+
+Después del viaje a {destino} del {salida}, la flota cobró {importe} a quien
+pidió el coche. Dice que fue cosa tuya:
+
+{motivo}
+
+Si es así, acéptalo y entrará en tu próxima liquidación. Si no lo es, dilo: no
+se te cobra nada mientras no estés de acuerdo.
+
+{enlace}`,
+		},
+		SucesoIncidenciaAceptada: {
+			"Han aceptado tu cargo de {importe}",
+			`Hola {nombre}:
+
+El cargo de {importe} que repercutiste ha sido aceptado. Te llegará en la
+próxima liquidación.
+
+{enlace}`,
+		},
+		SucesoIncidenciaDiscutida: {
+			"Han discutido tu cargo de {importe}",
+			`Hola {nombre}:
+
+El cargo de {importe} que repercutiste ha sido discutido, así que no se ha
+cobrado nada. No podemos decidir quién tiene razón, así que lo revisará una
+persona.
 
 {enlace}`,
 		},

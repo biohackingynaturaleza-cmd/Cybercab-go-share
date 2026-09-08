@@ -304,6 +304,24 @@ Dos reglas gobiernan el diseño:
 Sin `SMTP_HOST` los correos se escriben en el registro en vez de enviarse, que
 es lo que se quiere en desarrollo.
 
+## Cómo se separa el dinero de Tesla del nuestro
+
+No se separa: **nunca se junta**. Tesla cobra a quien pide el coche, con su
+tarjeta y en su app; nosotros cobramos aparte a quien se sube y le pasamos su
+parte a quien organizó. Dos transacciones, partes distintas, vías distintas.
+
+La tarifa se declara **al publicar**, copiada del presupuesto que enseña la app
+de Tesla, no al cerrar el viaje. Así quien se plantea subirse ve su parte exacta
+antes de comprometerse. Y el precio que acepta **no sube nunca**: si la flota
+acaba cobrando más, lo absorbe quien organiza. Con eso, inflar la tarifa al
+cerrar no da un céntimo y no hace falta vigilar a nadie.
+
+Los cargos que Tesla hace después —hasta 150 $ de limpieza, siempre a quien
+pidió el coche— se pueden repercutir a quien los causó, pero **declararlos no los
+cobra**: hasta que la otra parte lo acepta, no existe como deuda.
+
+Ver [`docs/flujo-del-dinero.md`](docs/flujo-del-dinero.md).
+
 ## Cómo se cobra
 
 No viaje a viaje. Cobrar cada trayecto por separado exige un cargo al pasajero y

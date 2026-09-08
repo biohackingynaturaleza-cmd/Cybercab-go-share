@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/billing"
@@ -42,12 +43,11 @@ type CierreInput struct {
 // liquidación, porque cobrar viaje a viaje se lleva en comisiones del
 // procesador prácticamente todo el ingreso.
 func (s *Service) CompletarViaje(in CierreInput) (*domain.Trip, []billing.Entry, error) {
-	tripID, hostID, importeRealCents := in.TripID, in.HostID, in.ImporteRealCents
-	t, err := s.store.GetTrip(tripID)
+	t, err := s.store.GetTrip(in.TripID)
 	if err != nil {
 		return nil, nil, err
 	}
-	if t.HostID != hostID {
+	if t.HostID != in.HostID {
 		return nil, nil, fmt.Errorf("%w: solo quien organiza puede cerrar el trayecto", ErrNoAutorizado)
 	}
 	if t.Status == domain.TripCompleted {
@@ -56,59 +56,62 @@ func (s *Service) CompletarViaje(in CierreInput) (*domain.Trip, []billing.Entry,
 	if t.Status == domain.TripCancelled {
 		return nil, nil, fmt.Errorf("%w: está anulado", ErrViajeNoCompletable)
 	}
+	if in.ImporteRealCents < 0 {
+		return nil, nil, fmt.Errorf("%w: el importe no puede ser negativo", domain.ErrValidation)
+	}
 
-	fb, err := s.FareBreakdownFor(tripID)
+	bookings, err := s.store.BookingsByTrip(in.TripID)
 	if err != nil {
 		return nil, nil, err
 	}
-	// Si la flota informa del importe realmente cobrado, el reparto se rehace
-	// sobre él: la estimación de la tarifa solo vale hasta que se sabe el
-	// precio de verdad.
-	if importeRealCents > 0 && importeRealCents != fb.TotalCents {
-		fb, err = s.repartirSobre(t, importeRealCents)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
-	bookings, err := s.store.BookingsByTrip(tripID)
-	if err != nil {
-		return nil, nil, err
-	}
-	porPasajero := map[string]*domain.Booking{}
+	confirmadas := make([]*domain.Booking, 0, len(bookings))
 	for _, b := range bookings {
 		if b.Status == domain.BookingConfirmed {
-			porPasajero[b.PassengerID] = b
+			confirmadas = append(confirmadas, b)
 		}
+	}
+
+	total := s.costeDelViaje(t)
+	if in.ImporteRealCents > 0 {
+		total = in.ImporteRealCents
+		t.TarifaRealCents = in.ImporteRealCents
+	}
+
+	partes := s.partesFinales(confirmadas, total)
+
+	// La comprobación de la que depende que esto sea gasto compartido y no
+	// transporte comercial. partesFinales lo garantiza por construcción, pero
+	// esa garantía no puede quedar solo en la cabeza de quien la escribió.
+	amounts := map[string]int64{}
+	for _, b := range confirmadas {
+		amounts[b.PassengerID] += partes[b.ID]
+	}
+	amounts[t.HostID] = total - sumaDe(amounts)
+	if err := pricing.VerificarSinLucro(total, amounts, t.HostID); err != nil {
+		return nil, nil, err
 	}
 
 	now := s.cfg.Now()
 	var entries []billing.Entry
-	for _, share := range fb.Shares {
-		if share.Role != "passenger" || share.AmountCents <= 0 {
+	for _, b := range confirmadas {
+		importe := partes[b.ID]
+		if importe <= 0 {
 			continue
 		}
-		b, ok := porPasajero[share.UserID]
-		if !ok {
-			// Solo se cobra a quien tenía la plaza confirmada.
-			continue
-		}
-
 		entries = append(entries, billing.Entry{
 			ID:             newID("ent"),
-			UserID:         share.UserID,
+			UserID:         b.PassengerID,
 			TripID:         t.ID,
 			BookingID:      b.ID,
 			Kind:           billing.EntryCostShare,
-			AmountCents:    share.AmountCents,
+			AmountCents:    importe,
 			CounterpartyID: t.HostID,
 			CreatedAt:      now,
 		})
-
-		if fee := comision(share.AmountCents, s.comisionBps()); fee > 0 {
+		if fee := comision(importe, s.comisionBps()); fee > 0 {
 			entries = append(entries, billing.Entry{
 				ID:          newID("ent"),
-				UserID:      share.UserID,
+				UserID:      b.PassengerID,
 				TripID:      t.ID,
 				BookingID:   b.ID,
 				Kind:        billing.EntryServiceFee,
@@ -126,15 +129,11 @@ func (s *Service) CompletarViaje(in CierreInput) (*domain.Trip, []billing.Entry,
 
 	if in.RefViaje != "" {
 		t.FleetRideRef = in.RefViaje
-		// Se registra también en el proveedor de flota, que es quien lleva el
-		// estado del viaje real.
-		if s.cfg.Flota != nil {
-			if tp, ok := s.cfg.Flota.(*fleet.Traspaso); ok {
-				if _, err := tp.Registrar(in.RefViaje); err != nil {
-					// Que la referencia ya estuviera registrada no debe impedir
-					// cerrar el viaje: el almacén tiene su propia unicidad.
-					s.log("no se pudo registrar la referencia en la flota", err)
-				}
+		if tp, ok := s.cfg.Flota.(*fleet.Traspaso); ok {
+			if _, err := tp.Registrar(in.RefViaje); err != nil {
+				// Que la referencia ya estuviera registrada no debe impedir
+				// cerrar el viaje: el almacén tiene su propia unicidad.
+				s.log("no se pudo registrar la referencia en la flota", err)
 			}
 		}
 	}
@@ -146,11 +145,74 @@ func (s *Service) CompletarViaje(in CierreInput) (*domain.Trip, []billing.Entry,
 	return t, entries, nil
 }
 
-// log deja constancia de un problema que no impide seguir.
-func (s *Service) log(msg string, err error) {
-	if s.cfg.Log != nil {
-		s.cfg.Log.Warn(msg, "err", err)
+// partesFinales decide lo que paga cada pasajero al cerrar el viaje.
+//
+// La regla es una sola y lo resuelve todo: **el precio que aceptó el pasajero
+// nunca sube**. Si la flota acaba cobrando más de lo presupuestado, la
+// diferencia la asume quien organiza, que es quien vio el presupuesto y eligió
+// la ruta. Con eso, inflar la tarifa al cerrar deja de dar dinero y el
+// incentivo a mentir desaparece.
+//
+// Y baja si el viaje salió más barato: si los pasajeros pagaran lo pactado
+// cuando la flota cobró menos, quien organiza ganaría dinero, y eso rompería la
+// excepción de gastos compartidos de la que depende la legalidad del servicio.
+func (s *Service) partesFinales(confirmadas []*domain.Booking, totalReal int64) map[string]int64 {
+	partes := make(map[string]int64, len(confirmadas))
+
+	var pactado int64
+	for _, b := range confirmadas {
+		partes[b.ID] = b.PriceCents
+		pactado += b.PriceCents
 	}
+	if pactado <= totalReal || pactado == 0 {
+		return partes
+	}
+
+	// Lo que aportan los pasajeros no puede superar el coste del viaje: se
+	// reescala a la baja, repartiendo el resto por el mayor resto para que la
+	// suma cuadre al céntimo.
+	restos := make([]struct {
+		id    string
+		resto float64
+	}, 0, len(confirmadas))
+	var asignado int64
+
+	for _, b := range confirmadas {
+		exacto := float64(b.PriceCents) * float64(totalReal) / float64(pactado)
+		partes[b.ID] = int64(math.Floor(exacto))
+		asignado += partes[b.ID]
+		restos = append(restos, struct {
+			id    string
+			resto float64
+		}{b.ID, exacto - math.Floor(exacto)})
+	}
+
+	sort.SliceStable(restos, func(i, j int) bool { return restos[i].resto > restos[j].resto })
+	for i := 0; asignado < totalReal && len(restos) > 0; i++ {
+		partes[restos[i%len(restos)].id]++
+		asignado++
+	}
+	return partes
+}
+
+func sumaDe(m map[string]int64) int64 {
+	var total int64
+	for _, v := range m {
+		total += v
+	}
+	return total
+}
+
+// costeDelViaje es lo que cuesta el trayecto: la tarifa que declaró quien
+// organiza si la hay, y si no nuestra estimación.
+func (s *Service) costeDelViaje(t *domain.Trip) int64 {
+	if t.TarifaRealCents > 0 {
+		return t.TarifaRealCents
+	}
+	if t.TarifaDeclaradaCents > 0 {
+		return t.TarifaDeclaradaCents
+	}
+	return s.tripCost(t.DistanceKm())
 }
 
 // LiquidarPeriodo cierra un periodo: compensa saldos y produce una sola
@@ -193,44 +255,11 @@ func (s *Service) AhorroDeAgrupar(desde, hasta time.Time) (*billing.Ahorro, erro
 	return &a, nil
 }
 
-// repartirSobre rehace el desglose con un coste distinto al estimado.
-func (s *Service) repartirSobre(t *domain.Trip, totalCents int64) (*FareBreakdown, error) {
-	fb, err := s.FareBreakdownFor(t.ID)
-	if err != nil {
-		return nil, err
+// log deja constancia de un problema que no impide seguir.
+func (s *Service) log(msg string, err error) {
+	if s.cfg.Log != nil {
+		s.cfg.Log.Warn(msg, "err", err)
 	}
-	if fb.TotalCents == totalCents || fb.TotalCents == 0 {
-		return fb, nil
-	}
-
-	// Se reescalan las partes y se corrige el redondeo contra quien organiza,
-	// que es quien paga el resto del viaje: así la suma sigue cuadrando con el
-	// importe real y nadie acaba pagando de más.
-	factor := float64(totalCents) / float64(fb.TotalCents)
-	var repartido int64
-	for i := range fb.Shares {
-		if fb.Shares[i].Role == "host" {
-			continue
-		}
-		fb.Shares[i].AmountCents = int64(math.Round(float64(fb.Shares[i].AmountCents) * factor))
-		repartido += fb.Shares[i].AmountCents
-	}
-	for i := range fb.Shares {
-		if fb.Shares[i].Role == "host" {
-			fb.Shares[i].AmountCents = totalCents - repartido
-		}
-	}
-	fb.TotalCents = totalCents
-	fb.SoloCostCents = totalCents
-
-	amounts := map[string]int64{}
-	for _, sh := range fb.Shares {
-		amounts[sh.UserID] += sh.AmountCents
-	}
-	if err := pricing.VerificarSinLucro(totalCents, amounts, t.HostID); err != nil {
-		return nil, err
-	}
-	return fb, nil
 }
 
 func (s *Service) comisionBps() int64 {

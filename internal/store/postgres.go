@@ -152,17 +152,17 @@ func (p *Postgres) CreateTrip(t *domain.Trip) error {
 			id, host_id, origin_name, destination_name, route, duration_min,
 			route_source, departure_time, vehicle, seats_total, seats_taken,
 			max_detour_km, min_trust_level, notes, status, created_at,
-			fleet_ride_ref
+			fleet_ride_ref, tarifa_declarada_cents, tarifa_real_cents
 		) VALUES (
 			$1, $2, $3, $4, ST_GeogFromText($5), $6,
 			$7, $8, $9, $10, $11,
 			$12, $13, $14, $15, $16,
-			$17
+			$17, $18, $19
 		)`,
 		t.ID, t.HostID, t.Origin.Name, t.Destination.Name, lineStringWKT(t.Route), t.DurationMin,
 		t.RouteSource, t.DepartureTime, string(t.Vehicle), t.SeatsTotal, t.SeatsTaken,
 		t.MaxDetourKm, t.MinTrustLevel.Label(), t.Notes, string(t.Status), t.CreatedAt,
-		t.FleetRideRef)
+		t.FleetRideRef, t.TarifaDeclaradaCents, t.TarifaRealCents)
 	if esViolacionUnica(err, "trips_fleet_ride_ref") {
 		return ErrReferenciaDeFlotaEnUso
 	}
@@ -178,7 +178,7 @@ const selectTrip = `
 	SELECT id, host_id, origin_name, destination_name, ST_AsGeoJSON(route),
 	       duration_min, route_source, departure_time, vehicle, seats_total,
 	       seats_taken, max_detour_km, min_trust_level, notes, status, created_at,
-	       fleet_ride_ref
+	       fleet_ride_ref, tarifa_declarada_cents, tarifa_real_cents
 	FROM trips`
 
 func (p *Postgres) GetTrip(id string) (*domain.Trip, error) {
@@ -203,12 +203,13 @@ func (p *Postgres) UpdateTrip(t *domain.Trip) error {
 			duration_min = $5, route_source = $6, departure_time = $7,
 			vehicle = $8, seats_total = $9, seats_taken = $10,
 			max_detour_km = $11, min_trust_level = $12, notes = $13, status = $14,
-			fleet_ride_ref = $15
+			fleet_ride_ref = $15, tarifa_declarada_cents = $16, tarifa_real_cents = $17
 		WHERE id = $1`,
 		t.ID, t.Origin.Name, t.Destination.Name, lineStringWKT(t.Route),
 		t.DurationMin, t.RouteSource, t.DepartureTime,
 		string(t.Vehicle), t.SeatsTotal, t.SeatsTaken,
-		t.MaxDetourKm, t.MinTrustLevel.Label(), t.Notes, string(t.Status), t.FleetRideRef)
+		t.MaxDetourKm, t.MinTrustLevel.Label(), t.Notes, string(t.Status), t.FleetRideRef,
+		t.TarifaDeclaradaCents, t.TarifaRealCents)
 	if esViolacionUnica(err, "trips_fleet_ride_ref") {
 		return ErrReferenciaDeFlotaEnUso
 	}
@@ -467,7 +468,7 @@ func scanTrips(rows pgx.Rows) ([]*domain.Trip, error) {
 		if err := rows.Scan(&t.ID, &t.HostID, &originName, &destName, &routeJSON,
 			&t.DurationMin, &t.RouteSource, &t.DepartureTime, &vehicle, &t.SeatsTotal,
 			&t.SeatsTaken, &t.MaxDetourKm, &trustLevel, &t.Notes, &status, &t.CreatedAt,
-			&t.FleetRideRef); err != nil {
+			&t.FleetRideRef, &t.TarifaDeclaradaCents, &t.TarifaRealCents); err != nil {
 			return nil, err
 		}
 		nivel, ok := trust.ParseLevel(trustLevel)

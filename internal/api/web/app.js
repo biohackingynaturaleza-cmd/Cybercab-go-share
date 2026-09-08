@@ -24,6 +24,7 @@ const estado = {
   resultados: [],
   seleccionado: null,
   mios: [],
+  incidencias: [],
   buscando: false,
 };
 
@@ -222,7 +223,7 @@ async function refrescar() {
   estado.perfil = perfil;
   estado.verificaciones = verif.verificaciones || [];
   estado.resumen = resumen;
-  await cargarMisTrayectos();
+  await Promise.all([cargarMisTrayectos(), cargarIncidencias()]);
 }
 
 /* ============ Confianza ============ */
@@ -651,6 +652,15 @@ async function publicar() {
   if (!tr) { toast(t('aviso.lugares.t'), parrafo(t('aviso.lugares.d')), 'error'); return; }
   if (!$('o-cuando').value) { toast(t('aviso.hora.t'), '', 'error'); $('o-cuando').focus(); return; }
 
+  // La tarifa es lo que verá y aceptará quien se suba, así que sin ella no se
+  // publica: nadie debería comprometerse a un precio que aún no existe.
+  const tarifa = parseFloat($('o-tarifa').value || '');
+  if (!Number.isFinite(tarifa) || tarifa <= 0) {
+    toast(t('aviso.tarifa.t'), parrafo(t('aviso.tarifa.d')), 'error');
+    $('o-tarifa').focus();
+    return;
+  }
+
   const btn = $('btn-publicar');
   btn.disabled = true; btn.textContent = t('ofrecer.publicando');
   try {
@@ -660,6 +670,7 @@ async function publicar() {
       departure_time: new Date($('o-cuando').value).toISOString(),
       vehicle: $('o-vehiculo').value,
       min_trust_level: $('o-nivel').value,
+      tarifa_declarada_cents: Math.round(tarifa * 100),
     });
     await refrescar();
     pintar();
@@ -731,11 +742,73 @@ function pintarMisTrayectos() {
     b.addEventListener('click', () => { cierreAbierto = null; pintarMisTrayectos(); }));
   $('mios').querySelectorAll('[data-cerrar-viaje]').forEach((b) =>
     b.addEventListener('click', () => cerrarViaje(b.dataset.cerrarViaje, b)));
+  $('mios').querySelectorAll('[data-repercutir]').forEach((b) =>
+    b.addEventListener('click', () => repercutir(b.dataset.repercutir, b)));
 
   $('mios').querySelectorAll('[data-aceptar]').forEach((b) =>
     b.addEventListener('click', () => decidir(b.dataset.aceptar, true, b)));
   $('mios').querySelectorAll('[data-rechazar]').forEach((b) =>
     b.addEventListener('click', () => decidir(b.dataset.rechazar, false, b)));
+}
+
+/* ============ Incidencias ============ */
+
+async function cargarIncidencias() {
+  const r = await api('GET', '/api/v1/me/incidencias');
+  estado.incidencias = r.incidencias || [];
+}
+
+function pintarIncidencias() {
+  const vivas = (estado.incidencias || []).filter(
+    (i) => i.estado !== 'retirada' && i.estado !== 'aceptada');
+  const caja = $('incidencias-caja');
+  caja.classList.toggle('oculto', !(estado.incidencias || []).length);
+  if (!(estado.incidencias || []).length) return;
+
+  $('incidencias').innerHTML = estado.incidencias.map((i) => {
+    const mia = i.atribuida_a === estado.usuario.id;
+    const puedeResponder = mia && i.estado === 'declarada';
+    const puedeRetirar = !mia && i.estado === 'declarada';
+
+    return `<article class="viaje" style="cursor:default">
+      <div class="viaje-cab">
+        <div class="ruta">${escapar(i.descripcion || t('inc.titulo'))}
+          <small>${escapar(t('inc.estado.' + i.estado))}</small>
+        </div>
+        <div class="precio"><b>${euros(i.importe_cents)}</b></div>
+      </div>
+      ${puedeResponder ? `<div class="viaje-pie">
+        <button class="btn-2 btn-fino" data-inc-no="${i.id}">${escapar(t('inc.discutir'))}</button>
+        <button class="btn-1 btn-fino" data-inc-si="${i.id}">${escapar(t('inc.aceptar'))}</button>
+      </div>` : ''}
+      ${puedeRetirar ? `<div class="viaje-pie">
+        <span class="tenue">${escapar(t('inc.nota'))}</span>
+        <button class="btn-2 btn-fino" data-inc-retirar="${i.id}">${escapar(t('inc.retirar'))}</button>
+      </div>` : ''}
+    </article>`;
+  }).join('');
+
+  const responder = async (id, acepta, boton) => {
+    boton.disabled = true;
+    try {
+      await api('POST', `/api/v1/incidencias/${id}/responder`, { acepta });
+      await refrescar(); pintar();
+      toast(t('aviso.inc.respondida.t'), '', 'bien');
+    } catch (e) { explicarError(e); boton.disabled = false; }
+  };
+  $('incidencias').querySelectorAll('[data-inc-si]').forEach((b) =>
+    b.addEventListener('click', () => responder(b.dataset.incSi, true, b)));
+  $('incidencias').querySelectorAll('[data-inc-no]').forEach((b) =>
+    b.addEventListener('click', () => responder(b.dataset.incNo, false, b)));
+  $('incidencias').querySelectorAll('[data-inc-retirar]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        await api('POST', `/api/v1/incidencias/${b.dataset.incRetirar}/retirar`, {});
+        await refrescar(); pintar();
+      } catch (e) { explicarError(e); b.disabled = false; }
+    }));
+  void vivas;
 }
 
 /* cierreAbierto es el trayecto cuyo formulario de cierre está desplegado. Solo
@@ -748,7 +821,10 @@ let cierreAbierto = null;
  * completaba, así que no se anotaba nada en el libro y el ahorro acumulado se
  * quedaba siempre en cero. */
 function cierreDe(v) {
-  if (v.status === 'completed' || v.status === 'cancelled') return '';
+  // Un viaje ya cerrado deja de poder cerrarse, pero sigue pudiendo generar
+  // cargos: la flota cobra las tasas de limpieza después.
+  if (v.status === 'completed') return repercutirDe(v);
+  if (v.status === 'cancelled') return '';
   // Solo tiene sentido cerrar un viaje que ya ha salido y que alguien
   // compartió: sin pasajeros no hay nada que repartir.
   const haSalido = new Date(v.departure_time) <= new Date();
@@ -779,6 +855,67 @@ function cierreDe(v) {
       <button class="btn-2 btn-fino" data-cancelar-cierre="1">${escapar(t('cerrar.cancelar'))}</button>
     </div>
   </div>`;
+}
+
+/* repercutirDe deja a quien organiza trasladar un cargo de la flota a quien lo
+   causó. La flota se lo cobra a quien pidió el coche aunque el destrozo lo
+   hiciera otro; sin esto asumiría esa responsabilidad sin herramienta alguna. */
+function repercutirDe(v) {
+  const pasajeros = (v.confirmadas || []);
+  if (!pasajeros.length) return '';
+
+  if (cierreAbierto !== v.id) {
+    return `<div class="cerrar">
+      <button class="btn-2 btn-fino" data-abrir-cierre="${v.id}">${escapar(t('inc.declarar'))}</button>
+    </div>`;
+  }
+  return `<div class="cerrar">
+    <h3>${escapar(t('inc.declarar'))}</h3>
+    <p>${escapar(t('inc.nota'))}</p>
+    <div class="campos-2">
+      <div class="campo">
+        <label for="inc-imp-${v.id}">${escapar(t('inc.importe'))}</label>
+        <input id="inc-imp-${v.id}" type="number" step="0.01" min="0" placeholder="50.00">
+      </div>
+      <div class="campo">
+        <label for="inc-quien-${v.id}">${escapar(t('inc.recibida', { quien: '', importe: '', destino: '' })).trim() || 'A quién'}</label>
+        <select id="inc-quien-${v.id}">
+          ${pasajeros.map((p) => `<option value="${p.passenger_id}">${escapar(p.pickup.name)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="campo">
+      <label for="inc-motivo-${v.id}">${escapar(t('inc.motivo'))}</label>
+      <input id="inc-motivo-${v.id}" placeholder="${escapar(t('inc.motivo.ph'))}">
+    </div>
+    <div class="acciones">
+      <button class="btn-1 btn-fino" data-repercutir="${v.id}">${escapar(t('inc.enviar'))}</button>
+      <button class="btn-2 btn-fino" data-cancelar-cierre="1">${escapar(t('cerrar.cancelar'))}</button>
+    </div>
+  </div>`;
+}
+
+async function repercutir(tripID, boton) {
+  const importe = parseFloat($('inc-imp-' + tripID)?.value || '');
+  if (!Number.isFinite(importe) || importe <= 0) {
+    toast(t('inc.importe'), '', 'error');
+    return;
+  }
+  boton.disabled = true;
+  try {
+    await api('POST', `/api/v1/trips/${tripID}/incidencias`, {
+      atribuida_a: $('inc-quien-' + tripID).value,
+      tipo: 'limpieza',
+      importe_cents: Math.round(importe * 100),
+      descripcion: ($('inc-motivo-' + tripID)?.value || '').trim(),
+    });
+    cierreAbierto = null;
+    await refrescar(); pintar();
+    toast(t('aviso.inc.declarada.t'), parrafo(t('aviso.inc.declarada.d')), 'bien');
+  } catch (e) {
+    explicarError(e);
+    boton.disabled = false;
+  }
 }
 
 async function cerrarViaje(tripID, boton) {
@@ -854,6 +991,7 @@ function pintar() {
     $('btn-salir').addEventListener('click', salir);
     pintarConfianza();
     pintarAhorro();
+    pintarIncidencias();
     pintarMisTrayectos();
   } else {
     $('btn-entrar-cab').addEventListener('click', () => mostrarAcceso(false));

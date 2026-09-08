@@ -36,6 +36,13 @@ const (
 	SucesoIdentidadVerificada Suceso = "identidad_verificada"
 	// SucesoIdentidadRechazada avisa de que la verificación no pasó.
 	SucesoIdentidadRechazada Suceso = "identidad_rechazada"
+	// SucesoIncidenciaDeclarada avisa de que la flota cobró algo después del
+	// viaje y se le atribuye.
+	SucesoIncidenciaDeclarada Suceso = "incidencia_declarada"
+	// SucesoIncidenciaAceptada avisa a quien la declaró de que la reconocen.
+	SucesoIncidenciaAceptada Suceso = "incidencia_aceptada"
+	// SucesoIncidenciaDiscutida avisa de que la niegan.
+	SucesoIncidenciaDiscutida Suceso = "incidencia_discutida"
 )
 
 // Aviso es un mensaje concreto para una persona concreta.

@@ -108,8 +108,14 @@ func evaluate(t *domain.Trip, q Query, directKm float64, current []pricing.Occup
 	}
 
 	routeKm := t.DistanceKm()
+	// Si quien organiza declaró la tarifa de la flota, esa manda: es el precio
+	// que la otra persona va a ver y aceptar, no una estimación nuestra.
+	coste := t.TarifaDeclaradaCents
+	if coste <= 0 {
+		coste = tariff.TripCostCents(routeKm, durationMin(routeKm, speedKmh))
+	}
 	price := pricing.EstimateSeatPrice(
-		tariff.TripCostCents(routeKm, durationMin(routeKm, speedKmh)),
+		coste,
 		routeKm,
 		current,
 		pricing.Occupant{ID: "__candidate__", StartKm: pickup.AlongKm, EndKm: dropoff.AlongKm, Seats: q.Seats},

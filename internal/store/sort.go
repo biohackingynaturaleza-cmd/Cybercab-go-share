@@ -14,3 +14,12 @@ func sortBookings(bs []*domain.Booking) {
 		return bs[i].ID < bs[j].ID
 	})
 }
+
+func sortIncidencias(is []*domain.Incidencia) {
+	sort.SliceStable(is, func(i, j int) bool {
+		if !is[i].CreatedAt.Equal(is[j].CreatedAt) {
+			return is[i].CreatedAt.After(is[j].CreatedAt)
+		}
+		return is[i].ID < is[j].ID
+	})
+}

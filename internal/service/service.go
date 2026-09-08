@@ -180,7 +180,11 @@ type NewTripInput struct {
 	Vehicle       domain.VehicleType
 	SeatsOffered  int
 	MaxDetourKm   float64
-	Notes         string
+	// TarifaDeclaradaCents es lo que la app de la flota presupuestó. Se declara
+	// aquí, al publicar, para que quien se sume vea su parte exacta antes de
+	// comprometerse y no se le pueda subir después.
+	TarifaDeclaradaCents int64
+	Notes                string
 	// MinTrustLevel es el nivel que se exige a quien se suba. El suelo del
 	// vehículo puede elevarlo, nunca rebajarlo.
 	MinTrustLevel trust.Level
@@ -220,27 +224,31 @@ func (s *Service) CreateTrip(ctx context.Context, in NewTripInput) (*domain.Trip
 	}
 
 	t := &domain.Trip{
-		ID:            newID("trip"),
-		HostID:        in.HostID,
-		Origin:        in.Origin,
-		Destination:   in.Destination,
-		Route:         computed.Geometry,
-		DurationMin:   computed.DurationMin,
-		RouteSource:   computed.Source,
-		DepartureTime: in.DepartureTime.UTC(),
-		Vehicle:       in.Vehicle,
-		SeatsTotal:    in.SeatsOffered,
-		MaxDetourKm:   in.MaxDetourKm,
-		MinTrustLevel: in.MinTrustLevel,
-		Notes:         in.Notes,
-		Status:        domain.TripOpen,
-		CreatedAt:     s.cfg.Now(),
+		ID:                   newID("trip"),
+		HostID:               in.HostID,
+		Origin:               in.Origin,
+		Destination:          in.Destination,
+		Route:                computed.Geometry,
+		DurationMin:          computed.DurationMin,
+		RouteSource:          computed.Source,
+		DepartureTime:        in.DepartureTime.UTC(),
+		Vehicle:              in.Vehicle,
+		SeatsTotal:           in.SeatsOffered,
+		MaxDetourKm:          in.MaxDetourKm,
+		MinTrustLevel:        in.MinTrustLevel,
+		TarifaDeclaradaCents: in.TarifaDeclaradaCents,
+		Notes:                in.Notes,
+		Status:               domain.TripOpen,
+		CreatedAt:            s.cfg.Now(),
 	}
 	if err := t.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", domain.ErrValidation, err)
 	}
 	if t.DepartureTime.Before(s.cfg.Now()) {
 		return nil, fmt.Errorf("%w: la salida ya ha pasado", domain.ErrValidation)
+	}
+	if in.TarifaDeclaradaCents < 0 {
+		return nil, fmt.Errorf("%w: la tarifa no puede ser negativa", domain.ErrValidation)
 	}
 	if err := s.store.CreateTrip(t); err != nil {
 		return nil, err
@@ -409,7 +417,7 @@ func (s *Service) RequestBooking(in BookInput) (*domain.Booking, error) {
 	}
 	routeKm := t.DistanceKm()
 	price := pricing.EstimateSeatPrice(
-		s.tripCost(routeKm),
+		s.costeDelViaje(t),
 		routeKm,
 		current,
 		pricing.Occupant{ID: "__candidate__", StartKm: pickup.AlongKm, EndKm: dropoff.AlongKm, Seats: in.Seats},
@@ -612,7 +620,7 @@ func (s *Service) FareBreakdownFor(tripID string) (*FareBreakdown, error) {
 	}
 
 	routeKm := t.DistanceKm()
-	total := s.tripCost(routeKm)
+	total := s.costeDelViaje(t)
 
 	occupants := []pricing.Occupant{{ID: t.HostID, StartKm: 0, EndKm: routeKm, Seats: 1}}
 	active := make([]*domain.Booking, 0, len(bookings))

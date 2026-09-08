@@ -86,6 +86,10 @@ func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger, o
 	// Facturación
 	mux.Handle("POST /api/v1/trips/{id}/completar", protegida(s.completarViaje))
 	mux.Handle("GET /api/v1/me/apuntes", protegida(s.misApuntes))
+	mux.Handle("GET /api/v1/me/incidencias", protegida(s.misIncidencias))
+	mux.Handle("POST /api/v1/trips/{id}/incidencias", protegida(s.declararIncidencia))
+	mux.Handle("POST /api/v1/incidencias/{id}/responder", protegida(s.responderIncidencia))
+	mux.Handle("POST /api/v1/incidencias/{id}/retirar", protegida(s.retirarIncidencia))
 	mux.Handle("GET /api/v1/facturacion/ahorro", protegida(s.ahorroDeAgrupar))
 
 	// Reservas
@@ -195,7 +199,10 @@ type createTripRequest struct {
 	SeatsOffered  int                `json:"seats_offered"`
 	MaxDetourKm   float64            `json:"max_detour_km"`
 	MinTrustLevel trust.Level        `json:"min_trust_level"`
-	Notes         string             `json:"notes"`
+	// TarifaDeclaradaCents es el presupuesto que enseña la app de la flota
+	// antes de confirmar el viaje.
+	TarifaDeclaradaCents int64  `json:"tarifa_declarada_cents"`
+	Notes                string `json:"notes"`
 }
 
 func (s *Server) createTrip(w http.ResponseWriter, r *http.Request) {
@@ -204,16 +211,17 @@ func (s *Server) createTrip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t, err := s.svc.CreateTrip(r.Context(), service.NewTripInput{
-		HostID:        actor(r),
-		Origin:        req.Origin,
-		Destination:   req.Destination,
-		Waypoints:     req.Waypoints,
-		DepartureTime: req.DepartureTime,
-		Vehicle:       req.Vehicle,
-		SeatsOffered:  req.SeatsOffered,
-		MaxDetourKm:   req.MaxDetourKm,
-		MinTrustLevel: req.MinTrustLevel,
-		Notes:         req.Notes,
+		HostID:               actor(r),
+		Origin:               req.Origin,
+		Destination:          req.Destination,
+		Waypoints:            req.Waypoints,
+		DepartureTime:        req.DepartureTime,
+		Vehicle:              req.Vehicle,
+		SeatsOffered:         req.SeatsOffered,
+		MaxDetourKm:          req.MaxDetourKm,
+		MinTrustLevel:        req.MinTrustLevel,
+		TarifaDeclaradaCents: req.TarifaDeclaradaCents,
+		Notes:                req.Notes,
 	})
 	if err != nil {
 		writeError(w, err)
@@ -487,6 +495,8 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrComprobacionEnCurso):
 		writeProblem(w, http.StatusConflict, err.Error())
 	case errors.Is(err, store.ErrEmailEnUso):
+		writeProblem(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrIncidenciaResuelta), errors.Is(err, store.ErrIncidenciaEnCurso):
 		writeProblem(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrViajeNoCompletable), errors.Is(err, store.ErrApuntesDuplicados):
 		writeProblem(w, http.StatusConflict, err.Error())
