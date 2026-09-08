@@ -150,7 +150,21 @@ func (s *Service) Register(in RegisterInput) (*Session, error) {
 	if err := s.store.CreateUser(u); err != nil {
 		return nil, err
 	}
+
+	// El código del buzón sale ya: confirmar el correo es el primer peldaño de
+	// la confianza y el momento de pedirlo es este, cuando la persona acaba de
+	// teclear la dirección y la tiene delante. Si falla, el alta sigue en pie:
+	// puede pedirlo otra vez desde la app.
+	if err := s.mandarCodigoDeAlta(u); err != nil {
+		s.log("no se pudo mandar el código de confirmación del correo", err)
+	}
 	return s.openSession(u)
+}
+
+// mandarCodigoDeAlta abre la comprobación del buzón nada más crear la cuenta.
+func (s *Service) mandarCodigoDeAlta(u *domain.User) error {
+	_, _, err := s.iniciarCorreo(u.ID)
+	return err
 }
 
 // ErrTerminosNoAceptados se devuelve al dar de alta una cuenta sin aceptar las

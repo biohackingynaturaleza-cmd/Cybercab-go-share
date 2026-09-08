@@ -231,9 +231,12 @@ async function enviarAcceso(ev) {
    código estable, el texto lo pone la interfaz en su idioma; el mensaje del
    servidor es el último recurso. */
 function mensajeDeError(e) {
-  const codigos = { enlace_no_valido: 'rec.caducado' };
-  const clave = codigos[e.datos?.codigo];
-  return clave ? t(clave) : e.message;
+  switch (e.datos?.codigo) {
+    case 'enlace_no_valido': return t('rec.caducado');
+    case 'codigo_agotado': return t('cod.agotado');
+    case 'codigo_invalido': return t('cod.malo', { n: e.datos.intentos_restantes ?? 0 });
+    default: return e.message;
+  }
 }
 
 /* avisarSiCortaron traduce el 429 a algo con el que la persona sabe qué hacer.
@@ -299,7 +302,18 @@ function hecha(id) {
   return estado.verificaciones.some((v) => v.kind === id && v.status === 'verified');
 }
 
+/* correoAbierto guarda si la fila del correo está enseñando el campo del
+   código. Es estado de la vista, no del servidor: por eso vive aquí. */
+let correoAbierto = false;
+
 async function verificar(id, boton) {
+  // El buzón no va al proveedor de identidad: el código se teclea aquí mismo.
+  if (id === 'email') {
+    correoAbierto = true;
+    pintarConfianza();
+    $('codigo-correo')?.focus();
+    return;
+  }
   boton.disabled = true;
   boton.textContent = '…';
   try {
@@ -349,11 +363,87 @@ function pintarConfianza() {
         ${!ok && DESBLOQUEA[c] ? `<span class="desbloquea">${escapar(t(DESBLOQUEA[c]))}</span>` : ''}</span>
       ${ok ? `<span class="ok" aria-label="${escapar(t('nivel.verificado'))}">✓</span>`
            : `<button class="btn-2 btn-fino" data-verificar="${c}">${escapar(t('confianza.verificar'))}</button>`}
-    </li>`;
+    </li>${c === 'email' && !ok && correoAbierto ? campoDelCodigo() : ''}`;
   }).join('');
 
   $('lista-comprobaciones').querySelectorAll('[data-verificar]').forEach((b) =>
     b.addEventListener('click', () => verificar(b.dataset.verificar, b)));
+  conectarCodigoDeCorreo();
+}
+
+/* ============ Código del buzón ============ */
+
+/* El código se teclea aquí, debajo de su propia fila: mandar a alguien a otra
+   pantalla para escribir seis dígitos que acaba de leer en el móvil es perder
+   por el camino a la mitad de la gente. */
+function campoDelCodigo() {
+  return `<li class="codigo-fila">
+    <div style="width:100%">
+      <p class="tenue" style="margin:0 0 8px">${escapar(t('cod.explica'))}</p>
+      <div class="codigo-caja">
+        <input id="codigo-correo" inputmode="numeric" autocomplete="one-time-code"
+               pattern="[0-9]*" placeholder="······"
+               aria-label="${escapar(t('cod.campo'))}">
+        <button class="btn-1 btn-fino" id="codigo-enviar">${escapar(t('cod.confirmar'))}</button>
+      </div>
+      <button class="enlace" id="codigo-reenviar" style="margin-top:8px;font-size:12px">${escapar(t('cod.reenviar'))}</button>
+    </div>
+  </li>`;
+}
+
+function conectarCodigoDeCorreo() {
+  const campo = $('codigo-correo');
+  if (!campo) return;
+
+  // Solo dígitos, y seis. El recorte lo hace esto y no un maxlength en el
+  // campo: maxlength corta antes de que se limpien los espacios, así que pegar
+  // "447 363" —que es como lo copia media gente— dejaba "44736".
+  campo.addEventListener('input', () => {
+    campo.value = campo.value.replace(/\D/g, '').slice(0, 6);
+  });
+  campo.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); enviarCodigo(); }
+  });
+  $('codigo-enviar').addEventListener('click', enviarCodigo);
+  $('codigo-reenviar').addEventListener('click', reenviarCodigo);
+}
+
+async function enviarCodigo() {
+  const campo = $('codigo-correo');
+  const boton = $('codigo-enviar');
+  if (campo.value.length !== 6) {
+    toast(t('cod.corto.t'), parrafo(t('cod.corto.d')), 'error');
+    campo.focus();
+    return;
+  }
+  const antes = boton.textContent;
+  boton.disabled = true;
+  boton.textContent = '…';
+  try {
+    await api('POST', '/api/v1/me/correo/confirmar', { codigo: campo.value });
+    correoAbierto = false;
+    toast(t('cod.hecho.t'), parrafo(t('cod.hecho.d')), 'bien');
+    await refrescar();
+    pintar();
+  } catch (e) {
+    toast(t('aviso.fallo.t'), parrafo(mensajeDeError(e)), 'error');
+    boton.disabled = false;
+    boton.textContent = antes;
+    campo.select();
+  }
+}
+
+async function reenviarCodigo() {
+  const boton = $('codigo-reenviar');
+  boton.disabled = true;
+  try {
+    await api('POST', '/api/v1/me/correo/reenviar', {});
+    toast(t('cod.reenviado.t'), parrafo(t('cod.reenviado.d')), 'bien');
+  } catch (e) {
+    if (!avisarSiCortaron(e)) toast(t('aviso.fallo.t'), parrafo(mensajeDeError(e)), 'error');
+  } finally {
+    boton.disabled = false;
+  }
 }
 
 /* ============ Ahorro ============ */

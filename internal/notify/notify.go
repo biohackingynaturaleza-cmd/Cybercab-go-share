@@ -48,6 +48,8 @@ const (
 	// SucesoContrasenaCambiada avisa de que la contraseña acaba de cambiar. Es
 	// el aviso que descubre un robo de cuenta.
 	SucesoContrasenaCambiada Suceso = "contrasena_cambiada"
+	// SucesoCodigoCorreo lleva el código que acredita el buzón.
+	SucesoCodigoCorreo Suceso = "codigo_correo"
 	// SucesoPideValoracion pide opinión sobre el viaje recién terminado.
 	SucesoPideValoracion Suceso = "pide_valoracion"
 	// SucesoValoracionRecibida avisa de que ya se puede ver lo que le pusieron,

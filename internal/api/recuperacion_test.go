@@ -1,44 +1,19 @@
 package api_test
 
 import (
-	"io"
-	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/api"
-	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/auth"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/notify"
-	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/service"
-	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/store"
-	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/trust"
 )
 
-// servidorConCorreo monta el servidor con un grabador de avisos, que es de
+// servidorConCorreo devuelve el entorno y su grabador de correos, que es de
 // donde sale el enlace que recibiría una persona de verdad.
 func servidorConCorreo(t *testing.T) (*entorno, *notify.Grabador) {
 	t.Helper()
-	secret, err := auth.GenerateSecret()
-	if err != nil {
-		t.Fatalf("GenerateSecret: %v", err)
-	}
-	tokens, err := auth.NewTokenIssuer(secret, time.Hour)
-	if err != nil {
-		t.Fatalf("NewTokenIssuer: %v", err)
-	}
-	identidad := trust.NewManual("http://test")
-	avisos := &notify.Grabador{}
-	svc := service.New(store.NewMemory(), service.Config{
-		Tokens: tokens, Identidad: identidad, Avisos: avisos,
-		PublicURL: "https://app.ejemplo.test",
-	})
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := httptest.NewServer(api.NewServer(svc, tokens, log))
-	t.Cleanup(srv.Close)
-	return &entorno{Server: srv, identidad: identidad}, avisos
+	e := nuevoEntorno(t)
+	return e, e.avisos
 }
 
 func TestRecuperarLaContrasenaDePuntaAPunta(t *testing.T) {

@@ -70,14 +70,18 @@ func (s *Service) NivelDe(userID string) (trust.Level, error) {
 // IniciarVerificacion abre una comprobación de identidad y devuelve adónde hay
 // que mandar a la persona para completarla.
 func (s *Service) IniciarVerificacion(ctx context.Context, userID string, kind trust.CheckKind) (*trust.Session, *trust.Check, error) {
-	if s.cfg.Identidad == nil {
-		return nil, nil, errors.New("el servicio no tiene configurado un proveedor de identidad")
-	}
 	if !kind.Valid() {
 		return nil, nil, fmt.Errorf("%w: %s", domain.ErrValidation, trust.ErrTipoDesconocido)
 	}
 	if _, err := s.store.GetUser(userID); err != nil {
 		return nil, nil, err
+	}
+	// El buzón lo comprobamos nosotros, con un código. Ver internal/service/correo.go.
+	if kind == trust.CheckEmail {
+		return s.iniciarCorreo(userID)
+	}
+	if s.cfg.Identidad == nil {
+		return nil, nil, errors.New("el servicio no tiene configurado un proveedor de identidad")
 	}
 
 	sess, err := s.cfg.Identidad.Start(ctx, userID, kind)
@@ -114,6 +118,10 @@ func (s *Service) RefrescarVerificacion(ctx context.Context, providerRef string)
 	if check.Status != trust.StatusPending {
 		// Ya resuelta: no se reabre. Aceptar un segundo veredicto permitiría
 		// pisar un rechazo con una respuesta posterior.
+		return check, nil
+	}
+	if check.Kind == trust.CheckEmail {
+		// El proveedor no sabe nada de esta: la resuelve el código, no él.
 		return check, nil
 	}
 

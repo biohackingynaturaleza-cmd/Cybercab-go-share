@@ -30,8 +30,11 @@ nadie.
 | `PERSONA_TEMPLATE_ID` | Plantilla de documento + selfie. Acredita **las dos** comprobaciones en un solo trámite |
 | `PERSONA_WEBHOOK_SECRET` | Firma de los avisos. Sin él se rechazan todos |
 | `PERSONA_TEMPLATE_PHONE` | Opcional, plantilla de teléfono |
-| `PERSONA_TEMPLATE_EMAIL` | Opcional, plantilla de correo |
 | `PERSONA_ACEPTAR_COMPLETADO` | `1` acepta verificaciones que terminan sin decisión. **Leer el aviso** |
+
+El correo no lleva plantilla: el buzón lo comprobamos nosotros con un código de
+seis dígitos, sin pasar por Persona. Ver el apartado de verificación de
+identidad del README.
 
 Nada más. `trust.Provider` ya estaba, así que no hay nada que rediseñar.
 

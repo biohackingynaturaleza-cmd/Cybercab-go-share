@@ -34,6 +34,33 @@ const testPassword = "contraseña-de-prueba"
 // newTestService construye un servicio listo para pruebas: emisor de tokens
 // propio, rutas en línea recta y proveedor de identidad manual, sin depender
 // de la red.
+// confirmarCorreoDe acredita el buzón de alguien con el código que se le mandó.
+//
+// El código sale del grabador de correos, que es el único sitio del que puede
+// salir: se guarda hasheado, así que ni siquiera el almacén lo sabe.
+func confirmarCorreoDe(t *testing.T, svc *Service, userID string) {
+	t.Helper()
+	u, err := svc.GetUser(userID)
+	if err != nil {
+		t.Fatalf("GetUser: %v", err)
+	}
+	grabador, ok := svc.cfg.Avisos.(*notify.Grabador)
+	if !ok {
+		t.Fatal("el servicio de pruebas no está grabando los correos")
+	}
+	avisos := grabador.Para(u.Email)
+	for i := len(avisos) - 1; i >= 0; i-- {
+		if avisos[i].Suceso != notify.SucesoCodigoCorreo {
+			continue
+		}
+		if _, err := svc.ConfirmarCorreo(userID, avisos[i].Datos["codigo"]); err != nil {
+			t.Fatalf("ConfirmarCorreo: %v", err)
+		}
+		return
+	}
+	t.Fatalf("no se mandó ningún código a %s", u.Email)
+}
+
 func newTestService(t *testing.T) (*Service, *trust.Manual) {
 	svc, identidad, _ := newTestServiceConAvisos(t)
 	return svc, identidad
@@ -77,6 +104,13 @@ func acreditar(t *testing.T, svc *Service, m *trust.Manual, userID string, nivel
 
 	ctx := context.Background()
 	for _, kind := range tipos {
+		if kind == trust.CheckEmail {
+			// El buzón no pasa por el proveedor de identidad: se acredita
+			// tecleando el código que llegó por correo, igual que hace una
+			// persona. La cuenta ya tiene uno pendiente desde el alta.
+			confirmarCorreoDe(t, svc, userID)
+			continue
+		}
 		sess, _, err := svc.IniciarVerificacion(ctx, userID, kind)
 		if err != nil {
 			t.Fatalf("IniciarVerificacion(%s, %s): %v", userID, kind, err)

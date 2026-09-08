@@ -17,6 +17,7 @@ import (
 
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/api"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/auth"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/notify"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/service"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/store"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/trust"
@@ -43,9 +44,17 @@ func lugar(name string, p map[string]float64) map[string]any {
 type entorno struct {
 	*httptest.Server
 	identidad *trust.Manual
+	// avisos guarda los correos enviados. Hace falta para acreditar el buzón:
+	// el código llega por correo, así que la única forma de recorrer el mismo
+	// camino que una persona es leerlo de ahí.
+	avisos *notify.Grabador
 }
 
-func newTestServer(t *testing.T) *entorno {
+// nuevoEntorno monta el servidor de pruebas. Todas las variantes pasan por
+// aquí: cada builder suelto que montaba el suyo acababa olvidándose de alguna
+// pieza —el grabador de correos, sin ir más lejos— y fallando de formas raras
+// lejos de la causa.
+func nuevoEntorno(t *testing.T, opciones ...api.Option) *entorno {
 	t.Helper()
 	secret, err := auth.GenerateSecret()
 	if err != nil {
@@ -56,18 +65,53 @@ func newTestServer(t *testing.T) *entorno {
 		t.Fatalf("NewTokenIssuer: %v", err)
 	}
 	identidad := trust.NewManual("http://test")
-	svc := service.New(store.NewMemory(), service.Config{Tokens: tokens, Identidad: identidad})
+	avisos := &notify.Grabador{}
+	svc := service.New(store.NewMemory(), service.Config{
+		Tokens: tokens, Identidad: identidad, Avisos: avisos,
+		PublicURL: "https://app.ejemplo.test",
+	})
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := httptest.NewServer(api.NewServer(svc, tokens, log))
+	srv := httptest.NewServer(api.NewServer(svc, tokens, log, opciones...))
 	t.Cleanup(srv.Close)
-	return &entorno{Server: srv, identidad: identidad}
+	return &entorno{Server: srv, identidad: identidad, avisos: avisos}
+}
+
+func newTestServer(t *testing.T) *entorno {
+	t.Helper()
+	return nuevoEntorno(t)
+}
+
+// confirmarCorreo acredita el buzón tecleando el código que llegó por correo,
+// que es lo que hace una persona.
+func confirmarCorreo(t *testing.T, e *entorno, token, correo string) {
+	t.Helper()
+	codigo := ultimoCodigo(t, e, correo)
+	if code := do(t, e, http.MethodPost, "/api/v1/me/correo/confirmar", token,
+		map[string]string{"codigo": codigo}, nil); code != http.StatusOK {
+		t.Fatalf("confirmando el correo de %s: código = %d", correo, code)
+	}
+}
+
+// ultimoCodigo saca de los correos enviados el último código para esa
+// dirección.
+func ultimoCodigo(t *testing.T, e *entorno, correo string) string {
+	t.Helper()
+	avisos := e.avisos.Para(correo)
+	for i := len(avisos) - 1; i >= 0; i-- {
+		if avisos[i].Suceso == notify.SucesoCodigoCorreo {
+			return avisos[i].Datos["codigo"]
+		}
+	}
+	t.Fatalf("no se mandó ningún código a %s", correo)
+	return ""
 }
 
 // acreditar lleva a alguien hasta la identidad verificada por los mismos
 // endpoints que usaría la aplicación.
 func acreditar(t *testing.T, e *entorno, token string) {
 	t.Helper()
-	tipos := []string{"email", "phone", "government_id", "selfie_liveness"}
+	// El buzón no pasa por el proveedor de identidad: lo acredita el código.
+	tipos := []string{"phone", "government_id", "selfie_liveness"}
 	for _, kind := range tipos {
 		var abierta struct {
 			Verificacion struct {
@@ -153,6 +197,7 @@ func registrar(t *testing.T, srv *entorno, name, email string) sesion {
 	}
 	// Por defecto, identidad acreditada: la mayoría de pruebas van de otra
 	// cosa, y las que van de confianza usan registrarSinVerificar.
+	confirmarCorreo(t, srv, s.Token, email)
 	acreditar(t, srv, s.Token)
 	return s
 }

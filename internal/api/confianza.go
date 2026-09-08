@@ -91,3 +91,38 @@ func (s *Server) desbloquear(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"desbloqueado": r.PathValue("id")})
 }
+
+type confirmarCorreoRequest struct {
+	Codigo string `json:"codigo"`
+}
+
+// confirmarCorreo acredita el buzón con el código que se mandó.
+func (s *Server) confirmarCorreo(w http.ResponseWriter, r *http.Request) {
+	var req confirmarCorreoRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	// El mismo techo que abrir una verificación: sin él, los cinco intentos por
+	// código se convierten en ilimitados a base de pedir códigos nuevos.
+	if !s.dejaVerificacion(w, actor(r)) {
+		return
+	}
+	check, err := s.svc.ConfirmarCorreo(actor(r), req.Codigo)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"verificacion": check})
+}
+
+// reenviarCodigoCorreo manda otro código para la comprobación en curso.
+func (s *Server) reenviarCodigoCorreo(w http.ResponseWriter, r *http.Request) {
+	if !s.dejaVerificacion(w, actor(r)) {
+		return
+	}
+	if err := s.svc.ReenviarCodigoCorreo(actor(r)); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"estado": "enviado"})
+}

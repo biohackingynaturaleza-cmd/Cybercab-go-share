@@ -54,6 +54,15 @@ marcando documentos vencidos.
 proveedor externo y el veredicto. Una filtración de esta base de datos no expone
 el documento de identidad de nadie.
 
+**El buzón lo comprobamos nosotros.** Verificar un correo es mandarle algo y ver
+si vuelve: un código de seis dígitos que sale solo al darse de alta, caduca en
+media hora y admite cinco intentos. No pasa por el proveedor de identidad
+—pagarle por un trámite sin documento ni cámara sería gastar en la parte fácil—
+y se teclea en la propia app, sin salir de la pantalla: mandar a alguien a otro
+sitio a escribir seis dígitos que acaba de leer en el móvil pierde por el camino
+a la mitad de la gente. El código se guarda hasheado, como las contraseñas, y
+pedir uno nuevo mata el anterior para que pedirlos no multiplique los intentos.
+
 El proveedor está detrás de una interfaz de tres métodos. **Persona viene
 implementado**: bastan cuatro variables de entorno para que la app empiece a
 verificar identidades de verdad, con webhook firmado y 500 verificaciones al mes
@@ -198,6 +207,8 @@ no se haya viajado todavía— el ahorro *previsto* de los viajes ya reservados.
 | `POST` | `/api/v1/auth/recuperar/confirmar` | Gastar el enlace y poner la nueva |
 | `GET` | `/api/v1/me` | Quién soy |
 | `POST` | `/api/v1/me/terminos` | Aceptar la redacción vigente de las condiciones |
+| `POST` | `/api/v1/me/correo/confirmar` | Acreditar el buzón con el código |
+| `POST` | `/api/v1/me/correo/reenviar` | Pedir otro código |
 
 Las cuatro rutas de acceso llevan techo de peticiones: son las únicas que
 alguien sin cuenta puede repetir sin límite. Ver

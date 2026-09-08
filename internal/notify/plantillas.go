@@ -134,6 +134,20 @@ have stopped working.
 If this was not you, reset your password now to lock the account again:
 {enlace}`,
 		},
+		SucesoCodigoCorreo: {
+			"{codigo} is your confirmation code",
+			`Hi {nombre},
+
+Your code is:
+
+    {codigo}
+
+Type it into the app to confirm this address. It expires in {minutos} minutes
+and only works five times, so take it straight from here.
+
+If you did not ask for it, ignore this email — nothing happens until the code
+is used.`,
+		},
 		SucesoPideValoracion: {
 			"How did your ride to {destino} go?",
 			`Hi {nombre},
@@ -313,6 +327,19 @@ recuperación ha dejado de servir.
 
 Si no has sido tú, cambia la contraseña ahora para recuperar el control de la
 cuenta: {enlace}`,
+		},
+		SucesoCodigoCorreo: {
+			"{codigo} es tu código de confirmación",
+			`Hola {nombre}:
+
+Tu código es:
+
+    {codigo}
+
+Tecléalo en la app para confirmar esta dirección. Caduca en {minutos} minutos y
+solo admite cinco intentos, así que cógelo de aquí directamente.
+
+Si no lo has pedido tú, ignora este correo: no pasa nada hasta que se use.`,
 		},
 		SucesoPideValoracion: {
 			"¿Qué tal fue tu viaje a {destino}?",

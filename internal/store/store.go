@@ -84,6 +84,15 @@ type Store interface {
 	AnularRecuperaciones(userID string, at time.Time) error
 	CambiarContrasena(userID, hash string) error
 
+	// Confirmación del correo por código
+	CrearCodigoCorreo(c *domain.CodigoCorreo) error
+	// CodigoCorreoVivo devuelve el último código sin usar de esa persona.
+	CodigoCorreoVivo(userID string) (*domain.CodigoCorreo, error)
+	// AnotarIntentoCodigo suma un intento y devuelve cuántos van.
+	AnotarIntentoCodigo(id string) (int, error)
+	UsarCodigoCorreo(id string, at time.Time) error
+	AnularCodigosCorreo(userID string, at time.Time) error
+
 	// Valoraciones entre quienes compartieron viaje
 	CrearValoracion(v *domain.Valoracion) error
 	ValoracionesRecibidas(userID string) ([]*domain.Valoracion, error)
@@ -133,6 +142,7 @@ type Memory struct {
 	// recuperaciones son las peticiones de cambio de contraseña vivas.
 	recuperaciones map[string]*domain.Recuperacion
 	valoraciones   map[string]*domain.Valoracion
+	codigos        map[string]*domain.CodigoCorreo
 	denuncias      map[string]*domain.Denuncia
 	// blocks son pares "bloqueador|bloqueado".
 	blocks map[string]bool
@@ -152,6 +162,7 @@ func NewMemory() *Memory {
 		incidencias:    map[string]*domain.Incidencia{},
 		recuperaciones: map[string]*domain.Recuperacion{},
 		valoraciones:   map[string]*domain.Valoracion{},
+		codigos:        map[string]*domain.CodigoCorreo{},
 		denuncias:      map[string]*domain.Denuncia{},
 		blocks:         map[string]bool{},
 	}

@@ -1,18 +1,10 @@
 package api_test
 
 import (
-	"io"
-	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/api"
-	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/auth"
-	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/service"
-	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/store"
-	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/trust"
 )
 
 // tokenDeOperaciones es el secreto del panel en las pruebas.
@@ -21,21 +13,7 @@ const tokenDeOperaciones = "secreto-de-operaciones-para-pruebas"
 // servidorConOperaciones monta el servidor con la cola de revisión abierta.
 func servidorConOperaciones(t *testing.T) *entorno {
 	t.Helper()
-	secret, err := auth.GenerateSecret()
-	if err != nil {
-		t.Fatalf("GenerateSecret: %v", err)
-	}
-	tokens, err := auth.NewTokenIssuer(secret, time.Hour)
-	if err != nil {
-		t.Fatalf("NewTokenIssuer: %v", err)
-	}
-	identidad := trust.NewManual("http://test")
-	svc := service.New(store.NewMemory(), service.Config{Tokens: tokens, Identidad: identidad})
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := httptest.NewServer(api.NewServer(svc, tokens, log,
-		api.WithDevIdentityResolver(identidad), api.WithPanelDeOperaciones(tokenDeOperaciones)))
-	t.Cleanup(srv.Close)
-	return &entorno{Server: srv, identidad: identidad}
+	return nuevoEntorno(t, api.WithPanelDeOperaciones(tokenDeOperaciones))
 }
 
 // viajeHecho deja un trayecto completado con dos personas dentro, que es el

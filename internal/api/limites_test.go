@@ -3,39 +3,20 @@ package api_test
 import (
 	"bytes"
 	"encoding/json"
-	"io"
-	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/api"
-	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/auth"
-	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/service"
-	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/store"
-	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/trust"
 )
 
 // servidorConLimites monta el servidor con los techos de producción, que son
-// los que esta prueba quiere ejercitar.
+// los que estas pruebas quieren ejercitar. Son los de siempre: no hay una
+// variante relajada, para que nadie pruebe contra unos límites que luego no
+// son los que corren.
 func servidorConLimites(t *testing.T) *entorno {
 	t.Helper()
-	secret, err := auth.GenerateSecret()
-	if err != nil {
-		t.Fatalf("GenerateSecret: %v", err)
-	}
-	tokens, err := auth.NewTokenIssuer(secret, time.Hour)
-	if err != nil {
-		t.Fatalf("NewTokenIssuer: %v", err)
-	}
-	identidad := trust.NewManual("http://test")
-	svc := service.New(store.NewMemory(), service.Config{Tokens: tokens, Identidad: identidad})
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := httptest.NewServer(api.NewServer(svc, tokens, log))
-	t.Cleanup(srv.Close)
-	return &entorno{Server: srv, identidad: identidad}
+	return nuevoEntorno(t)
 }
 
 // pedir es como do, pero devuelve la respuesta entera: aquí importan las

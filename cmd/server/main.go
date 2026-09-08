@@ -203,13 +203,10 @@ func buildIdentityProvider(log *slog.Logger) (trust.Provider, *trust.Persona) {
 		plantillas[trust.CheckGovernmentID] = id
 		plantillas[trust.CheckSelfie] = id
 	}
-	for variable, kind := range map[string]trust.CheckKind{
-		"PERSONA_TEMPLATE_EMAIL": trust.CheckEmail,
-		"PERSONA_TEMPLATE_PHONE": trust.CheckPhone,
-	} {
-		if id := os.Getenv(variable); id != "" {
-			plantillas[kind] = id
-		}
+	// El correo no aparece aquí: lo comprobamos nosotros con un código. Ver
+	// internal/service/correo.go.
+	if id := os.Getenv("PERSONA_TEMPLATE_PHONE"); id != "" {
+		plantillas[trust.CheckPhone] = id
 	}
 
 	p, err := trust.NewPersona(trust.PersonaConfig{

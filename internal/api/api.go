@@ -72,6 +72,8 @@ func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger, o
 	mux.Handle("GET /api/v1/me/resumen", protegida(s.resumen))
 	mux.Handle("GET /api/v1/me/trips", protegida(s.misTrayectos))
 	mux.Handle("POST /api/v1/me/terminos", protegida(s.aceptarTerminos))
+	mux.Handle("POST /api/v1/me/correo/confirmar", protegida(s.confirmarCorreo))
+	mux.Handle("POST /api/v1/me/correo/reenviar", protegida(s.reenviarCodigoCorreo))
 	mux.Handle("GET /api/v1/me/valoraciones/pendientes", protegida(s.misValoracionesPendientes))
 	mux.Handle("GET /api/v1/me/denuncias", protegida(s.misDenuncias))
 
@@ -604,6 +606,20 @@ func writeError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
 			"error":            err.Error(),
 			"terminos_version": domain.VersionTerminos,
+		})
+	case errors.Is(err, service.ErrCodigoInvalido):
+		// 422 y no 401: la sesión es válida, lo que no cuadra es el código. Va
+		// con los intentos restantes para que la interfaz pueda decirlos.
+		cuerpo := map[string]any{"error": err.Error(), "codigo": "codigo_invalido"}
+		var malo *service.CodigoNoValido
+		if errors.As(err, &malo) {
+			cuerpo["intentos_restantes"] = malo.Restantes
+		}
+		writeJSON(w, http.StatusUnprocessableEntity, cuerpo)
+	case errors.Is(err, service.ErrCodigoAgotado):
+		writeJSON(w, http.StatusGone, map[string]string{
+			"error":  err.Error(),
+			"codigo": "codigo_agotado",
 		})
 	case errors.Is(err, service.ErrRecuperacionInvalida):
 		// 410: el enlace existió o pudo existir, pero ya no vale. Pedir otro es

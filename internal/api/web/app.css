@@ -660,3 +660,18 @@ textarea {
   font: 14px/1.5 var(--sans);
 }
 textarea:focus { border-color: var(--acento); outline: none; }
+
+/* ============ Código del buzón ============ */
+
+.codigo-fila { display: block !important; padding: 12px 13px !important; }
+.codigo-caja { display: flex; gap: 8px; align-items: center; }
+
+/* Monoespaciada y espaciada: seis dígitos se comprueban de un vistazo, y con
+   la tipografía del resto del formulario no se distingue un 1 de una l. */
+#codigo-correo {
+  flex: 1; min-width: 0;
+  font: 600 19px/1 var(--mono);
+  letter-spacing: .34em; text-indent: .34em; text-align: center;
+  padding: 11px 10px;
+}
+#codigo-correo::placeholder { letter-spacing: .34em; color: var(--borde-2); }
