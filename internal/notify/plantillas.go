@@ -134,6 +134,61 @@ have stopped working.
 If this was not you, reset your password now to lock the account again:
 {enlace}`,
 		},
+		SucesoPideValoracion: {
+			"How did your ride to {destino} go?",
+			`Hi {nombre},
+
+You shared the trip to {destino} with {quien}. Rating each other is what makes
+this work: without it, the next person has nothing to go on.
+
+Neither of you sees the other's rating until you have both rated, so say what
+you really thought.
+
+Rate the ride: {enlace}`,
+		},
+		SucesoValoracionRecibida: {
+			"{quien} rated your ride: {estrellas}/5",
+			`Hi {nombre},
+
+You have both rated the trip, so the ratings are now visible. {quien} gave you
+{estrellas} out of 5.
+
+See it: {enlace}`,
+		},
+		SucesoDenunciaRecibida: {
+			"We have your report",
+			`Hi {nombre},
+
+Your report has reached us and a person will look at it. We will not tell the
+other party that it came from you.
+
+You will not see them again on the app: reporting somebody blocks them both
+ways.
+
+If you are in danger right now, call 911 first — we cannot help with that.`,
+		},
+		SucesoDenunciaResuelta: {
+			"Your report has been reviewed",
+			`Hi {nombre},
+
+We have finished reviewing the report you filed. Outcome: {resultado}
+
+{resolucion}
+
+Thank you for telling us. It is what keeps this usable for everyone.`,
+		},
+		SucesoCuentaSuspendida: {
+			"Your account cannot share rides for now",
+			`Hi {nombre},
+
+After reviewing a report, your account has been suspended from publishing or
+booking trips until {hasta}.
+
+{resolucion}
+
+You can still sign in, see your history and settle what you owe. If you believe
+this is a mistake, reply to this email.`,
+		},
 	},
 
 	"es": {
@@ -258,6 +313,62 @@ recuperación ha dejado de servir.
 
 Si no has sido tú, cambia la contraseña ahora para recuperar el control de la
 cuenta: {enlace}`,
+		},
+		SucesoPideValoracion: {
+			"¿Qué tal fue tu viaje a {destino}?",
+			`Hola {nombre}:
+
+Compartiste el trayecto a {destino} con {quien}. Valoraros es lo que hace que
+esto funcione: sin eso, quien venga detrás no tiene nada en lo que apoyarse.
+
+Ninguno de los dos ve la valoración del otro hasta que habéis valorado los dos,
+así que di lo que de verdad piensas.
+
+Valora el viaje: {enlace}`,
+		},
+		SucesoValoracionRecibida: {
+			"{quien} ha valorado tu viaje: {estrellas}/5",
+			`Hola {nombre}:
+
+Ya habéis valorado los dos, así que las valoraciones son visibles. {quien} te
+ha puesto {estrellas} sobre 5.
+
+Míralo: {enlace}`,
+		},
+		SucesoDenunciaRecibida: {
+			"Hemos recibido tu denuncia",
+			`Hola {nombre}:
+
+Tu denuncia nos ha llegado y la va a revisar una persona. No le diremos a la
+otra parte que viene de ti.
+
+No volverás a verla en la app: denunciar a alguien le bloquea en las dos
+direcciones.
+
+Si ahora mismo estás en peligro, llama antes al 911: con eso no podemos
+ayudarte nosotros.`,
+		},
+		SucesoDenunciaResuelta: {
+			"Hemos revisado tu denuncia",
+			`Hola {nombre}:
+
+Hemos terminado de revisar la denuncia que pusiste. Resultado: {resultado}
+
+{resolucion}
+
+Gracias por contárnoslo. Es lo que mantiene esto usable para todos.`,
+		},
+		SucesoCuentaSuspendida: {
+			"Tu cuenta no puede compartir viajes por ahora",
+			`Hola {nombre}:
+
+Tras revisar una denuncia, tu cuenta queda suspendida para publicar y reservar
+trayectos hasta el {hasta}.
+
+{resolucion}
+
+Puedes seguir entrando, consultar tu historial y saldar lo que debas. Si crees
+que es un error, responde a este correo.`,
 		},
 	},
 }

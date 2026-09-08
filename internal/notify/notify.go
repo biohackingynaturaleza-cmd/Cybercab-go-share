@@ -48,6 +48,17 @@ const (
 	// SucesoContrasenaCambiada avisa de que la contraseña acaba de cambiar. Es
 	// el aviso que descubre un robo de cuenta.
 	SucesoContrasenaCambiada Suceso = "contrasena_cambiada"
+	// SucesoPideValoracion pide opinión sobre el viaje recién terminado.
+	SucesoPideValoracion Suceso = "pide_valoracion"
+	// SucesoValoracionRecibida avisa de que ya se puede ver lo que le pusieron,
+	// porque han valorado los dos.
+	SucesoValoracionRecibida Suceso = "valoracion_recibida"
+	// SucesoDenunciaRecibida confirma a quien denuncia que su denuncia existe.
+	SucesoDenunciaRecibida Suceso = "denuncia_recibida"
+	// SucesoDenunciaResuelta le cuenta en qué quedó.
+	SucesoDenunciaResuelta Suceso = "denuncia_resuelta"
+	// SucesoCuentaSuspendida avisa a quien queda apartado de compartir viajes.
+	SucesoCuentaSuspendida Suceso = "cuenta_suspendida"
 )
 
 // Aviso es un mensaje concreto para una persona concreta.

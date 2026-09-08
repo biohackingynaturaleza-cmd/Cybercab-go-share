@@ -246,6 +246,11 @@ func opcionesDeServidor(identidad trust.Provider, persona *trust.Persona) []api.
 	if os.Getenv("TRUST_PROXY") == "1" {
 		opts = append(opts, api.WithProxyDeConfianza())
 	}
+	// La cola de revisión de denuncias. Sin secreto configurado no existe:
+	// preferimos que no esté a que esté con un token adivinable.
+	if token := os.Getenv("OPS_TOKEN"); token != "" {
+		opts = append(opts, api.WithPanelDeOperaciones(token))
+	}
 	if os.Getenv("ENV") == "production" {
 		return opts
 	}

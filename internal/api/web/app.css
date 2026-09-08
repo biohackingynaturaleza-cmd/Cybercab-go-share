@@ -596,3 +596,67 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 .pie-legal { margin-top: 10px; }
 .pie-legal a { color: var(--tenue); text-decoration: none; }
 .pie-legal a:hover { color: var(--acento); }
+
+/* ============ Valoraciones y denuncias ============ */
+
+.valorar { border-top: 1px solid var(--borde); padding-top: 12px; margin-top: 12px; }
+.valorar:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+.valorar-quien { font-size: 13.5px; margin-bottom: 2px; }
+.valorar-quien b { font-weight: 620; }
+.valorar-viaje { font: 11px/1.4 var(--mono); color: var(--tenue); margin-bottom: 9px; }
+
+/* Las estrellas son botones de verdad, no un input range disfrazado: se
+   navegan con el teclado y se leen con un lector de pantalla. */
+.estrellas { display: flex; gap: 2px; margin-bottom: 9px; }
+.estrellas button {
+  background: none; border: 0; padding: 3px; cursor: pointer; line-height: 0;
+  color: var(--borde-2); transition: color var(--paso), transform var(--paso);
+}
+.estrellas button svg { width: 24px; height: 24px; display: block; }
+.estrellas button:hover { transform: scale(1.12); }
+.estrellas button[aria-pressed="true"] { color: var(--n-basico); }
+
+.nota {
+  display: inline-flex; align-items: center; gap: 4px;
+  font: 600 12px/1 var(--mono); color: var(--n-basico);
+}
+.nota svg { width: 12px; height: 12px; }
+.nota small { color: var(--tenue); font-weight: 500; }
+
+/* Denunciar no se destaca: no es una acción que queramos animar, es una que
+   tiene que estar disponible cuando hace falta. */
+.denunciar {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  font: 12px var(--sans); color: var(--tenue); text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.denunciar:hover { color: var(--peligro); }
+
+.modal {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: rgba(4, 6, 8, .72); backdrop-filter: blur(3px);
+}
+.modal[hidden] { display: none; }
+.modal-caja {
+  background: var(--capa-2); border: 1px solid var(--borde-2); border-radius: var(--r2);
+  padding: 22px; width: min(460px, 100%); max-height: 90vh; overflow-y: auto;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .5);
+}
+/* El título de un diálogo es un título, no el rótulo de una sección: deshace
+   el estilo de h2 de las tarjetas, que es monoespaciado y en mayúsculas. */
+.modal-caja h2 {
+  margin: 0 0 4px;
+  font: 650 19px/1.2 var(--sans);
+  text-transform: none; letter-spacing: -.015em;
+  color: var(--texto);
+}
+.modal-caja > p { margin: 0 0 16px; font-size: 13px; color: var(--suave); }
+.modal-pie { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+textarea {
+  width: 100%; min-height: 92px; resize: vertical;
+  padding: 10px 11px; background: var(--fondo); color: var(--texto);
+  border: 1px solid var(--borde-2); border-radius: var(--r);
+  font: 14px/1.5 var(--sans);
+}
+textarea:focus { border-color: var(--acento); outline: none; }

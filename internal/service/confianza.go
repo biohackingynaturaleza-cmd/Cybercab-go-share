@@ -36,10 +36,9 @@ func (s *Service) PerfilDe(userID string) (*Perfil, error) {
 	}
 
 	now := s.cfg.Now()
-	stats := trust.Stats{
-		CompletedTrips: u.RideCount,
-		Rating:         u.Rating,
-		RatingCount:    u.RatingCount,
+	stats, err := s.estadisticasDe(u)
+	if err != nil {
+		return nil, err
 	}
 
 	vigentes := make([]string, 0, len(checks))
@@ -299,9 +298,11 @@ func (s *Service) comprobarConfianza(t *domain.Trip, pasajeroID string) error {
 		if err != nil {
 			return err
 		}
-		nivel := trust.LevelOf(checks, trust.Stats{
-			CompletedTrips: u.RideCount, Rating: u.Rating, RatingCount: u.RatingCount,
-		}, s.cfg.Now())
+		stats, err := s.estadisticasDe(u)
+		if err != nil {
+			return err
+		}
+		nivel := trust.LevelOf(checks, stats, s.cfg.Now())
 
 		if nivel < exigido {
 			motivo := trust.ExplicarSuelo(t.AforoTotal())

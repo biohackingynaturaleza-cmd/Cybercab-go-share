@@ -47,8 +47,8 @@ func nuevoUsuario(t *testing.T, pg *store.Postgres, id, email string) *domain.Us
 	t.Helper()
 	u := &domain.User{
 		ID: id, Name: "Prueba " + id, Email: email,
-		PasswordHash: "$2a$10$hash-de-prueba", Rating: 5,
-		CreatedAt: time.Now().UTC().Truncate(time.Millisecond),
+		PasswordHash: "$2a$10$hash-de-prueba",
+		CreatedAt:    time.Now().UTC().Truncate(time.Millisecond),
 	}
 	if err := pg.CreateUser(u); err != nil {
 		t.Fatalf("CreateUser(%s): %v", id, err)

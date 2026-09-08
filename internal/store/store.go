@@ -84,6 +84,25 @@ type Store interface {
 	AnularRecuperaciones(userID string, at time.Time) error
 	CambiarContrasena(userID, hash string) error
 
+	// Valoraciones entre quienes compartieron viaje
+	CrearValoracion(v *domain.Valoracion) error
+	ValoracionesRecibidas(userID string) ([]*domain.Valoracion, error)
+	ValoracionesEmitidas(userID string) ([]*domain.Valoracion, error)
+	ValoracionesDeBooking(bookingID string) ([]*domain.Valoracion, error)
+	// IncrementarViajes suma un viaje completado a cada participante.
+	IncrementarViajes(userIDs []string) error
+
+	// Denuncias y su consecuencia
+	CrearDenuncia(d *domain.Denuncia) error
+	GetDenuncia(id string) (*domain.Denuncia, error)
+	UpdateDenuncia(d *domain.Denuncia) error
+	DenunciasAbiertas() ([]*domain.Denuncia, error)
+	DenunciasDe(userID string) ([]*domain.Denuncia, error)
+	DenunciasContra(userID string) ([]*domain.Denuncia, error)
+	// SuspenderUsuario aparta a alguien de compartir viajes. Un hasta nulo
+	// levanta la suspensión.
+	SuspenderUsuario(userID string, hasta *time.Time) error
+
 	// Incidencias posteriores al viaje
 	CreateIncidencia(i *domain.Incidencia) error
 	GetIncidencia(id string) (*domain.Incidencia, error)
@@ -113,6 +132,8 @@ type Memory struct {
 	incidencias map[string]*domain.Incidencia
 	// recuperaciones son las peticiones de cambio de contraseña vivas.
 	recuperaciones map[string]*domain.Recuperacion
+	valoraciones   map[string]*domain.Valoracion
+	denuncias      map[string]*domain.Denuncia
 	// blocks son pares "bloqueador|bloqueado".
 	blocks map[string]bool
 	// tripOrder preserva el orden de alta para que los listados sean estables.
@@ -130,6 +151,8 @@ func NewMemory() *Memory {
 		entries:        map[string]*billing.Entry{},
 		incidencias:    map[string]*domain.Incidencia{},
 		recuperaciones: map[string]*domain.Recuperacion{},
+		valoraciones:   map[string]*domain.Valoracion{},
+		denuncias:      map[string]*domain.Denuncia{},
 		blocks:         map[string]bool{},
 	}
 }

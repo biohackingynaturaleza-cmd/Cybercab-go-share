@@ -111,19 +111,19 @@ func (p *Postgres) Migrate(ctx context.Context) error {
 
 func (p *Postgres) CreateUser(u *domain.User) error {
 	_, err := p.pool.Exec(context.Background(), `
-		INSERT INTO users (id, name, email, password_hash, idioma, rating, rating_count,
-			ride_count, created_at, terminos_version, terminos_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		INSERT INTO users (id, name, email, password_hash, idioma,
+			ride_count, created_at, terminos_version, terminos_at, suspendido_hasta)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		u.ID, u.Name, u.Email, u.PasswordHash, domain.NormalizarIdioma(u.Idioma),
-		u.Rating, u.RatingCount, u.RideCount, u.CreatedAt, u.TerminosVersion, u.TerminosAt)
+		u.RideCount, u.CreatedAt, u.TerminosVersion, u.TerminosAt, u.SuspendidoHasta)
 	if esViolacionUnica(err, "users_email_key") {
 		return ErrEmailEnUso
 	}
 	return err
 }
 
-const selectUser = `SELECT id, name, email, password_hash, idioma, rating, rating_count,
-	ride_count, created_at, terminos_version, terminos_at FROM users`
+const selectUser = `SELECT id, name, email, password_hash, idioma,
+	ride_count, created_at, terminos_version, terminos_at, suspendido_hasta FROM users`
 
 func (p *Postgres) GetUser(id string) (*domain.User, error) {
 	return p.scanUser(p.pool.QueryRow(context.Background(), selectUser+` WHERE id = $1`, id))
@@ -136,8 +136,8 @@ func (p *Postgres) GetUserByEmail(email string) (*domain.User, error) {
 
 func (p *Postgres) scanUser(row pgx.Row) (*domain.User, error) {
 	var u domain.User
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.Idioma, &u.Rating,
-		&u.RatingCount, &u.RideCount, &u.CreatedAt, &u.TerminosVersion, &u.TerminosAt)
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.Idioma,
+		&u.RideCount, &u.CreatedAt, &u.TerminosVersion, &u.TerminosAt, &u.SuspendidoHasta)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -550,6 +550,7 @@ func esViolacionUnica(err error, constraint string) bool {
 // esquema intacto pero borra su contenido.
 func (p *Postgres) TruncateAll(ctx context.Context) error {
 	_, err := p.pool.Exec(ctx,
-		`TRUNCATE password_resets, user_blocks, identity_checks, bookings, trips, users RESTART IDENTITY CASCADE`)
+		`TRUNCATE denuncias, valoraciones, password_resets, user_blocks, identity_checks,
+			bookings, trips, users RESTART IDENTITY CASCADE`)
 	return err
 }

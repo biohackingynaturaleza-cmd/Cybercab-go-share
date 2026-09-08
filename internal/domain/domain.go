@@ -55,17 +55,33 @@ type User struct {
 	// aunque alguien serialice el usuario entero por descuido.
 	PasswordHash string `json:"-"`
 	// Idioma es en el que se le escribe: "en" o "es".
-	Idioma      string    `json:"idioma"`
-	Rating      float64   `json:"rating"`
-	RatingCount int       `json:"rating_count"`
-	RideCount   int       `json:"ride_count"`
-	CreatedAt   time.Time `json:"created_at"`
+	Idioma string `json:"idioma"`
+	// RideCount son los viajes ya completados. Es un contador y no una consulta
+	// porque solo crece, y crece exactamente una vez: al cerrar un trayecto,
+	// que es una transición que el propio estado del trayecto impide repetir.
+	//
+	// La valoración media no está aquí: se calcula a partir de las
+	// valoraciones publicadas, igual que el nivel de confianza se calcula a
+	// partir de las comprobaciones vigentes. Un promedio guardado se
+	// desincroniza en cuanto una valoración cambia de visible a no visible.
+	RideCount int       `json:"ride_count"`
+	CreatedAt time.Time `json:"created_at"`
 	// TerminosVersion es la redacción de las condiciones que aceptó, y
 	// TerminosAt cuándo. Se guarda la versión y no un simple "sí": dentro de
 	// dos años, "aceptó las condiciones" no significa nada si no se sabe
 	// cuáles.
 	TerminosVersion string     `json:"terminos_version"`
 	TerminosAt      *time.Time `json:"terminos_at,omitempty"`
+	// SuspendidoHasta aparta a alguien de compartir viajes. Nulo es la
+	// situación normal. No impide entrar en la cuenta a propósito: quien está
+	// suspendido sigue teniendo saldos que liquidar y viajes que consultar, y
+	// dejarle fuera de todo solo consigue que no responda de nada.
+	SuspendidoHasta *time.Time `json:"suspendido_hasta,omitempty"`
+}
+
+// Suspendido indica si esta persona está apartada de compartir viajes.
+func (u *User) Suspendido(now time.Time) bool {
+	return u.SuspendidoHasta != nil && now.Before(*u.SuspendidoHasta)
 }
 
 // TerminosAlDia indica si esta persona aceptó la redacción vigente.

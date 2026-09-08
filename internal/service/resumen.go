@@ -30,6 +30,12 @@ type Resumen struct {
 	SinCompartirCents int64 `json:"sin_compartir_cents"`
 
 	Nivel trust.Level `json:"nivel"`
+	// Valoracion es la reputación ya publicada: media y cuántas la sostienen.
+	// Va aquí para que la interfaz la enseñe junto al nivel, que es donde una
+	// persona espera encontrarla.
+	Valoracion trust.Stats `json:"valoracion"`
+	// PendientesDeValorar son los viajes hechos que aún esperan su opinión.
+	PendientesDeValorar int `json:"pendientes_de_valorar"`
 	// SiguienteNivel y QueFalta indican cómo subir, para que el nivel no
 	// parezca una etiqueta fija sino un camino.
 	SiguienteNivel string            `json:"siguiente_nivel,omitempty"`
@@ -47,12 +53,15 @@ func (s *Service) ResumenDe(userID string) (*Resumen, error) {
 		return nil, err
 	}
 
-	now := s.cfg.Now()
-	nivel := trust.LevelOf(checks, trust.Stats{
-		CompletedTrips: u.RideCount, Rating: u.Rating, RatingCount: u.RatingCount,
-	}, now)
+	stats, err := s.estadisticasDe(u)
+	if err != nil {
+		return nil, err
+	}
 
-	r := &Resumen{UserID: userID, Nivel: nivel}
+	now := s.cfg.Now()
+	nivel := trust.LevelOf(checks, stats, now)
+
+	r := &Resumen{UserID: userID, Nivel: nivel, Valoracion: stats}
 	if falta := trust.Missing(checks, trust.LevelVerificado, now); len(falta) > 0 {
 		r.SiguienteNivel = trust.LevelVerificado.Label()
 		r.QueFalta = falta
@@ -112,6 +121,12 @@ func (s *Service) ResumenDe(userID string) (*Resumen, error) {
 				r.PeticionesPorResponder++
 			}
 		}
+	}
+
+	// Los viajes hechos que esperan opinión: es lo que la interfaz enseña como
+	// tarea pendiente, y sin ese recordatorio casi nadie valora.
+	if pendientes, err := s.PendientesDeValorar(userID); err == nil {
+		r.PendientesDeValorar = len(pendientes)
 	}
 
 	return r, nil

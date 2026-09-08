@@ -106,7 +106,6 @@ type Session struct {
 	ExpiresAt time.Time    `json:"expires_at"`
 }
 
-// Register da de alta a una persona y le abre sesión.
 // RegisterInput son los datos de alta de una cuenta.
 type RegisterInput struct {
 	Name     string
@@ -144,7 +143,6 @@ func (s *Service) Register(in RegisterInput) (*Session, error) {
 		Email:           strings.TrimSpace(in.Email),
 		PasswordHash:    hash,
 		Idioma:          domain.NormalizarIdioma(in.Idioma),
-		Rating:          5,
 		CreatedAt:       now,
 		TerminosVersion: domain.VersionTerminos,
 		TerminosAt:      &now,
@@ -236,6 +234,9 @@ type NewTripInput struct {
 func (s *Service) CreateTrip(ctx context.Context, in NewTripInput) (*domain.Trip, error) {
 	if _, err := s.store.GetUser(in.HostID); err != nil {
 		return nil, fmt.Errorf("%w: el usuario que organiza no existe", domain.ErrValidation)
+	}
+	if err := s.comprobarNoSuspendido(in.HostID); err != nil {
+		return nil, err
 	}
 	if in.Vehicle == "" {
 		in.Vehicle = domain.VehicleCybercab
@@ -424,6 +425,12 @@ func (s *Service) RequestBooking(in BookInput) (*domain.Booking, error) {
 	if in.PassengerID == t.HostID {
 		return nil, fmt.Errorf("%w: quien organiza ya viaja en el trayecto", domain.ErrValidation)
 	}
+	// Quien está suspendido no se sube a un coche con nadie. Se comprueba aquí
+	// y no solo al publicar porque las dos formas de acabar dentro del vehículo
+	// cuentan igual.
+	if err := s.comprobarNoSuspendido(in.PassengerID); err != nil {
+		return nil, err
+	}
 	// La confianza se comprueba antes que las plazas: alguien que no puede
 	// subirse no debe llegar siquiera a retener un asiento.
 	if err := s.comprobarConfianza(t, in.PassengerID); err != nil {
@@ -536,6 +543,15 @@ func (s *Service) DecideBooking(in DecisionInput) (*domain.Booking, error) {
 	}
 	if b.Status != domain.BookingPending {
 		return nil, fmt.Errorf("%w: la reserva ya está en estado %q", domain.ErrValidation, b.Status)
+	}
+	if in.Accept {
+		// Aceptar es meter a alguien en el coche: si cualquiera de los dos está
+		// suspendido, no llega a pasar.
+		for _, id := range []string{in.HostID, b.PassengerID} {
+			if err := s.comprobarNoSuspendido(id); err != nil {
+				return nil, err
+			}
+		}
 	}
 	// Rechazar no exige asumir nada; aceptar, sí.
 	if in.Accept && !in.AceptaResponsabilidad {

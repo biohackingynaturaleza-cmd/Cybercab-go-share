@@ -32,6 +32,9 @@ type Server struct {
 	// arrancar sin límites sería arrancar con el formulario de acceso abierto
 	// de par en par.
 	limites *limites
+	// tokenOperaciones abre la cola de revisión de denuncias. Vacío significa
+	// que esas rutas no existen.
+	tokenOperaciones string
 }
 
 // NewServer construye el manejador HTTP con todas las rutas registradas.
@@ -69,6 +72,18 @@ func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger, o
 	mux.Handle("GET /api/v1/me/resumen", protegida(s.resumen))
 	mux.Handle("GET /api/v1/me/trips", protegida(s.misTrayectos))
 	mux.Handle("POST /api/v1/me/terminos", protegida(s.aceptarTerminos))
+	mux.Handle("GET /api/v1/me/valoraciones/pendientes", protegida(s.misValoracionesPendientes))
+	mux.Handle("GET /api/v1/me/denuncias", protegida(s.misDenuncias))
+
+	// Valoraciones y denuncias
+	mux.Handle("POST /api/v1/bookings/{id}/valoracion", protegida(s.valorar))
+	mux.Handle("GET /api/v1/users/{id}/valoraciones", http.HandlerFunc(s.valoracionesDe))
+	mux.Handle("POST /api/v1/users/{id}/denunciar", protegida(s.denunciar))
+
+	// Operaciones: la cola de revisión. Solo existe con token configurado.
+	mux.HandleFunc("GET /api/v1/operaciones/denuncias", s.operaciones(s.colaDeDenuncias))
+	mux.HandleFunc("POST /api/v1/operaciones/denuncias/{id}/resolver", s.operaciones(s.resolverDenuncia))
+	mux.HandleFunc("POST /api/v1/operaciones/usuarios/{id}/levantar-suspension", s.operaciones(s.levantarSuspension))
 
 	// Perfiles públicos: se ve con quién vas a compartir coche.
 	mux.HandleFunc("GET /api/v1/users/{id}", s.getUser)
@@ -551,6 +566,13 @@ func writeError(w http.ResponseWriter, err error) {
 		unauthorized(w, nil, err)
 	case errors.Is(err, service.ErrNoAutorizado), errors.Is(err, service.ErrBloqueado):
 		writeProblem(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, service.ErrSuspendido):
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error":  err.Error(),
+			"codigo": "cuenta_suspendida",
+		})
+	case errors.Is(err, service.ErrSinTratoPrevio):
+		writeProblem(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, trust.ErrConfianzaInsuficiente):
 		// 403 con el detalle de qué falta: negar el acceso sin explicar qué
 		// hacer para conseguirlo solo genera abandono.
@@ -572,6 +594,10 @@ func writeError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrIncidenciaResuelta), errors.Is(err, store.ErrIncidenciaEnCurso):
 		writeProblem(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrDenunciaResuelta), errors.Is(err, store.ErrYaValorado):
+		writeProblem(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrViajeNoValorable):
+		writeProblem(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, service.ErrViajeNoCompletable), errors.Is(err, store.ErrApuntesDuplicados):
 		writeProblem(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrTerminosNoAceptados):

@@ -213,6 +213,24 @@ alguien sin cuenta puede repetir sin límite. Ver
 | `POST` | `/api/v1/users/{id}/bloquear` | Bloquear a alguien |
 | `POST` | `/api/v1/users/{id}/desbloquear` | Retirar el bloqueo |
 
+### Valoraciones y denuncias
+| Método | Ruta | Qué hace |
+|---|---|---|
+| `POST` | `/api/v1/bookings/{id}/valoracion` | Valorar a la otra parte del viaje |
+| `GET` | `/api/v1/users/{id}/valoraciones` | Valoraciones ya publicadas (pública) |
+| `GET` | `/api/v1/me/valoraciones/pendientes` | Viajes hechos que esperan tu opinión |
+| `POST` | `/api/v1/users/{id}/denunciar` | Denunciar a quien compartió viaje contigo |
+| `GET` | `/api/v1/me/denuncias` | Las denuncias que has puesto |
+
+### Operaciones
+Solo existen con `OPS_TOKEN` configurado; sin él devuelven `404`.
+
+| Método | Ruta | Qué hace |
+|---|---|---|
+| `GET` | `/api/v1/operaciones/denuncias` | Cola de revisión, lo urgente primero |
+| `POST` | `/api/v1/operaciones/denuncias/{id}/resolver` | Confirmarla o desestimarla |
+| `POST` | `/api/v1/operaciones/usuarios/{id}/levantar-suspension` | Deshacer una suspensión |
+
 ### Trayectos y reservas
 | Método | Ruta | Qué hace |
 |---|---|---|
@@ -275,6 +293,7 @@ rutas, de proveedor de identidad o de flota es implementar una interfaz.
 | `FARE_MINIMUM_CENTS` | `500` | Importe mínimo del viaje |
 | `AVG_SPEED_KMH` | `45` | Velocidad media de respaldo |
 | `TRUST_PROXY` | — | `1` lee la IP de `X-Forwarded-For`. Solo con un proxy propio delante |
+| `OPS_TOKEN` | — | Secreto de la cola de revisión de denuncias. Sin él, esas rutas no existen |
 
 > Las tarifas son una **estimación de mercado**, no precios oficiales de Tesla.
 
@@ -299,6 +318,11 @@ Cuando alguien pide plaza, la persona que organiza recibe un correo con lo que
 necesita para decidir: quién es, su nivel de confianza, cuántos kilómetros
 compartiríais y cuánto aportaría. Cuando se acepta o se rechaza, el pasajero se
 entera. Lo mismo con las anulaciones y con la identidad acreditada.
+
+Al cerrarse un viaje, las dos partes reciben la petición de valorarse. Sin ese
+recordatorio casi nadie valora, y una reputación sostenida por tres valoraciones
+no dice nada de nadie. Cuando han valorado los dos, cada uno recibe lo que le
+pusieron.
 
 Cada uno en **su** idioma, el que eligió al registrarse.
 
@@ -356,6 +380,58 @@ Dos propiedades que el código garantiza:
   de dinero.
 
 Ver [`docs/modelo-de-negocio.md`](docs/modelo-de-negocio.md).
+
+## Valoraciones: por qué son a doble ciego
+
+Quien organiza y quien se sube se valoran al terminar el viaje, del 1 al 5, con
+un comentario opcional. La regla que lo sostiene todo es que **una valoración no
+cuenta hasta que valoran los dos** —o hasta que pasan dos semanas—.
+
+Sin esa regla, un sistema de valoraciones a dos bandas se convierte en otra
+cosa: veo primero lo que me han puesto, y mi nota deja de ser una opinión para
+ser una respuesta. Es el fallo clásico de los mercados de dos lados, y termina
+con todo el mundo poniendo cinco estrellas por si acaso. El plazo cierra el
+agujero contrario: si esperar callado bastara para esconder una mala nota,
+bastaría con no valorar nunca.
+
+Dos decisiones más, pequeñas pero con consecuencias:
+
+- **La media se calcula, no se guarda.** Una valoración pasa sola de invisible a
+  visible cuando vence el plazo, y ningún contador guardado se entera de eso. Es
+  la misma decisión que con el nivel de confianza: se deriva de lo que hay, así
+  caduca solo cuando caduca lo que lo sostiene.
+- **Una valoración por reserva y parte.** Poder reescribir la nota la convierte
+  en moneda de cambio: «súbeme la mía y te subo la tuya».
+- **Sin valoraciones no se enseña un cero**, se enseña «todavía sin
+  valoraciones». Un cero acusa a quien acaba de llegar de algo que no ha hecho.
+
+La media aparece donde sirve para decidir: junto al nombre de quien pide plaza,
+en el momento en que quien organiza tiene que aceptarle y hacerse responsable de
+su conducta dentro del vehículo.
+
+## Denuncias: y qué pasa después
+
+Denunciar está limitado a **quien compartió un viaje contigo**. Sin esa
+restricción el sistema es un arma: basta con registrarse y repartir denuncias
+contra quien molesta.
+
+- **Denunciar bloquea, en las dos direcciones.** Quien acaba de pasar un mal rato
+  no debería tener que marcar además una casilla para no volver a cruzarse con
+  quien se lo hizo pasar.
+- **Nunca se le enseña al denunciado.** No hay ninguna ruta que lo permita. Una
+  denuncia que llega a sus oídos es una denuncia que nadie pone.
+- **No decide nada automáticamente.** Lo revisa una persona desde la cola de
+  operaciones, con lo urgente —seguridad y suplantación de identidad— siempre
+  delante. Automatizar la consecuencia sería dejar que quien denuncia elija a
+  quién castigar.
+- **Confirmarla suspende.** Un sistema de denuncias que solo archiva es un buzón
+  de quejas, y la gente deja de usarlo en cuanto se da cuenta. La suspensión
+  aparta de publicar y de reservar, no de entrar en la cuenta: quien está
+  suspendido sigue teniendo saldos que liquidar, y dejarle fuera de todo solo
+  consigue que no responda de nada.
+- **Se le dice por qué y hasta cuándo, y se puede deshacer.** Una suspensión sin
+  explicación no se puede recurrir, y una irreversible convierte cada error
+  nuestro en definitivo.
 
 ## Recuperar la contraseña
 
@@ -425,10 +501,8 @@ sin forma de renovarla.
 2. **Revisión legal de las condiciones y la privacidad.** El texto está escrito
    y describe el servicio real; falta un abogado de Texas, la entidad y las
    direcciones de contacto.
-3. **Valoraciones y denuncias.** El nivel veterano ya las cuenta, pero todavía
-   no hay forma de emitirlas.
-4. **Pagos.** Cobrar el reparto y liquidarlo con quien organiza.
-5. **Compartir el viaje en tiempo real** con un contacto de confianza, y botón
+3. **Pagos.** Cobrar el reparto y liquidarlo con quien organiza.
+4. **Compartir el viaje en tiempo real** con un contacto de confianza, y botón
    de emergencia. En un coche sin conductor pesa más que en uno con conductor.
-6. **Un proveedor de identidad real.** Es lo único que separa la app de poder
+5. **Un proveedor de identidad real.** Es lo único que separa la app de poder
    admitir usuarios de verdad.

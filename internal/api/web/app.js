@@ -22,6 +22,7 @@ const estado = {
   zonas: [],
   modo: 'buscar',
   resultados: [],
+  pendientes: [],
   seleccionado: null,
   mios: [],
   incidencias: [],
@@ -265,6 +266,15 @@ function salir() {
   dibujarMapa();
 }
 
+async function cargarPendientesDeValorar() {
+  try {
+    const r = await api('GET', '/api/v1/me/valoraciones/pendientes');
+    estado.pendientes = r.pendientes || [];
+  } catch {
+    estado.pendientes = [];
+  }
+}
+
 async function refrescar() {
   if (!estado.usuario) return;
   const [perfil, verif, resumen] = await Promise.all([
@@ -275,7 +285,7 @@ async function refrescar() {
   estado.perfil = perfil;
   estado.verificaciones = verif.verificaciones || [];
   estado.resumen = resumen;
-  await Promise.all([cargarMisTrayectos(), cargarIncidencias()]);
+  await Promise.all([cargarMisTrayectos(), cargarIncidencias(), cargarPendientesDeValorar()]);
 }
 
 /* ============ Confianza ============ */
@@ -319,6 +329,9 @@ function pintarConfianza() {
   const nivel = estado.perfil?.nivel || 'nuevo';
   $('mi-nivel').textContent = t('nivel.' + nivel);
   $('mi-nivel').className = 'nivel nivel-' + claseNivel(nivel);
+  // La media va junto al nivel porque son lo mismo: las dos cosas que otra
+  // persona mira antes de decidir si se sube a un coche contigo.
+  $('mi-nota').innerHTML = nota(estado.perfil?.estadisticas);
 
   const total = COMPROBACIONES.length;
   const listas = COMPROBACIONES.filter(hecha).length;
@@ -746,6 +759,12 @@ async function cargarMisTrayectos() {
       const b = await api('GET', `/api/v1/trips/${t.id}/bookings`);
       t.peticiones = (b.bookings || []).filter((x) => x.status === 'pending');
       t.confirmadas = (b.bookings || []).filter((x) => x.status === 'confirmed');
+      // Quién pide la plaza, no solo cuántas. Aceptar a alguien te hace
+      // responsable de su conducta en el vehículo: decidir eso sin saber quién
+      // es ni qué dicen de él es decidir a ciegas.
+      await Promise.all(t.peticiones.map(async (p) => {
+        try { p.perfil = await api('GET', `/api/v1/users/${p.passenger_id}/confianza`); } catch { /* seguimos sin perfil */ }
+      }));
     } catch { t.peticiones = []; t.confirmadas = []; }
   }
 }
@@ -755,14 +774,26 @@ function pintarMisTrayectos() {
   $('mios-caja').classList.remove('oculto');
 
   $('mios').innerHTML = estado.mios.map((v) => {
-    const peticiones = (v.peticiones || []).map((p) => `
-      <div class="fila" style="margin-top:11px;padding-top:11px;border-top:1px solid var(--borde)">
-        <span class="tenue">${escapar(t('mios.piden', { n: p.seats, precio: euros(p.price_cents) }))}</span>
-        <span style="display:flex;gap:6px">
-          <button class="btn-1 btn-fino" data-aceptar="${p.id}">${escapar(t('mios.aceptar'))}</button>
-          <button class="btn-2 btn-fino" data-rechazar="${p.id}">${escapar(t('mios.no'))}</button>
-        </span>
-      </div>`).join('');
+    const peticiones = (v.peticiones || []).map((p) => {
+      const perfil = p.perfil;
+      const quien = perfil ? `
+        <div class="valorar-quien" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <b>${escapar(perfil.nombre)}</b>
+          <span class="nivel nivel-${claseNivel(perfil.nivel)}">${escapar(t('nivel.' + perfil.nivel))}</span>
+          ${nota(perfil.estadisticas)}
+        </div>` : '';
+      return `
+      <div style="margin-top:11px;padding-top:11px;border-top:1px solid var(--borde)">
+        ${quien}
+        <div class="fila">
+          <span class="tenue">${escapar(t('mios.piden', { n: p.seats, precio: euros(p.price_cents) }))}</span>
+          <span style="display:flex;gap:6px">
+            <button class="btn-1 btn-fino" data-aceptar="${p.id}">${escapar(t('mios.aceptar'))}</button>
+            <button class="btn-2 btn-fino" data-rechazar="${p.id}">${escapar(t('mios.no'))}</button>
+          </span>
+        </div>
+      </div>`;
+    }).join('');
 
     const conf = (v.confirmadas || []).length;
     return `
@@ -1046,6 +1077,8 @@ function pintar() {
     pintarConfianza();
     pintarAhorro();
     pintarIncidencias();
+    pintarValoraciones();
+    pintarSuspension();
     pintarMisTrayectos();
   } else {
     $('btn-entrar-cab').addEventListener('click', () => mostrarAcceso(false));
@@ -1161,6 +1194,153 @@ async function aceptarTerminos() {
   }
 }
 
+/* ============ Valoraciones ============ */
+
+/* La estrella, dibujada aquí para no depender de ninguna fuente de iconos: la
+   política de seguridad solo deja cargar cosas de este servidor. */
+const ESTRELLA = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.4-5.8-3-5.8 3 1.1-6.4L2.6 9.4l6.5-.9L12 2.6z"/></svg>`;
+
+/* nota compone la media de alguien. Sin valoraciones no enseña un 0: enseñar
+   cero estrellas a quien acaba de llegar es acusarle de algo que no ha hecho. */
+function nota(stats) {
+  if (!stats || !stats.rating_count) {
+    return `<span class="tenue" style="font-size:12px">${escapar(t('val.ninguna'))}</span>`;
+  }
+  const media = stats.rating.toLocaleString(idioma(), {
+    minimumFractionDigits: 1, maximumFractionDigits: 1,
+  });
+  return `<span class="nota">${ESTRELLA}${escapar(t('val.media', { media, n: stats.rating_count }))}</span>`;
+}
+
+function pintarValoraciones() {
+  const pendientes = estado.pendientes || [];
+  $('valorar-caja').classList.toggle('oculto', !pendientes.length);
+  if (!pendientes.length) return;
+
+  $('valorar-lista').innerHTML = pendientes.map((p) => `
+    <div class="valorar" data-val="${escapar(p.booking_id)}">
+      <div class="valorar-quien">${escapar(t('val.con', { quien: p.nombre }))}</div>
+      <div class="valorar-viaje">${escapar(t('val.viaje', {
+        destino: p.destino, fecha: fecha(new Date(p.salida)),
+      }))}</div>
+      <div class="estrellas" role="group" aria-label="${escapar(t('val.enviar'))}">
+        ${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-estrella="${n}"
+          aria-pressed="false" aria-label="${escapar(t('val.estrella', { n }))}">${ESTRELLA}</button>`).join('')}
+      </div>
+      <textarea data-comentario maxlength="500" data-t-ph="val.comentario.ph"
+        placeholder="${escapar(t('val.comentario.ph'))}"></textarea>
+      <div class="modal-pie">
+        <button class="denunciar" data-denunciar="${escapar(p.sobre_id)}"
+          data-nombre="${escapar(p.nombre)}" data-viaje="${escapar(p.trip_id)}">${escapar(t('den.abrir'))}</button>
+        <button class="btn-1 btn-fino" data-enviar>${escapar(t('val.enviar'))}</button>
+      </div>
+    </div>`).join('');
+
+  $('valorar-lista').querySelectorAll('.valorar').forEach(conectarValoracion);
+  $('valorar-lista').querySelectorAll('[data-denunciar]').forEach((b) =>
+    b.addEventListener('click', () => abrirDenuncia(b.dataset.denunciar, b.dataset.nombre, b.dataset.viaje)));
+}
+
+function conectarValoracion(caja) {
+  let elegidas = 0;
+  const botones = [...caja.querySelectorAll('[data-estrella]')];
+  const pintarEstrellas = () => botones.forEach((b) =>
+    b.setAttribute('aria-pressed', String(Number(b.dataset.estrella) <= elegidas)));
+
+  botones.forEach((b) => b.addEventListener('click', () => {
+    elegidas = Number(b.dataset.estrella);
+    pintarEstrellas();
+  }));
+
+  caja.querySelector('[data-enviar]').addEventListener('click', async (ev) => {
+    const boton = ev.currentTarget;
+    if (!elegidas) {
+      toast(t('val.elige'), parrafo(t('val.elige.d')), 'error');
+      botones[4].focus();
+      return;
+    }
+    const antes = boton.textContent;
+    boton.disabled = true;
+    boton.textContent = t('val.enviando');
+    try {
+      await api('POST', `/api/v1/bookings/${caja.dataset.val}/valoracion`, {
+        estrellas: elegidas,
+        comentario: caja.querySelector('[data-comentario]').value.trim(),
+      });
+      toast(t('val.hecho.t'), parrafo(t('val.hecho.d')), 'bien');
+      await refrescar();
+      pintar();
+    } catch (e) {
+      explicarError(e);
+      boton.disabled = false;
+      boton.textContent = antes;
+    }
+  });
+}
+
+/* pintarSuspension explica por qué de pronto no se puede publicar ni reservar.
+   Sin este cartel, quien está suspendido solo ve que la app falla. */
+function pintarSuspension() {
+  const hasta = estado.usuario?.suspendido_hasta;
+  const activa = hasta && new Date(hasta) > new Date();
+  $('caja-suspension').classList.toggle('oculto', !activa);
+  if (activa) {
+    $('suspension-texto').textContent = t('susp.texto', {
+      hasta: new Date(hasta).toLocaleDateString(idioma(), { day: 'numeric', month: 'long', year: 'numeric' }),
+    });
+  }
+}
+
+/* ============ Denuncias ============ */
+
+let denunciaAbierta = null;
+
+function abrirDenuncia(userID, nombre, tripID) {
+  denunciaAbierta = { userID, tripID };
+  $('den-sub').textContent = t('den.sub', { quien: nombre });
+  $('den-texto').value = '';
+  $('den-motivo').selectedIndex = 0;
+  $('modal-denuncia').hidden = false;
+  $('den-motivo').focus();
+}
+
+function cerrarDenuncia() {
+  denunciaAbierta = null;
+  $('modal-denuncia').hidden = true;
+}
+
+async function enviarDenuncia(ev) {
+  ev.preventDefault();
+  if (!denunciaAbierta) return;
+  const texto = $('den-texto').value.trim();
+  if (texto.length < 10) {
+    toast(t('den.corto'), parrafo(t('den.corto.d')), 'error');
+    $('den-texto').focus();
+    return;
+  }
+
+  const boton = $('den-enviar');
+  const antes = boton.textContent;
+  boton.disabled = true;
+  boton.textContent = t('den.enviando');
+  try {
+    await api('POST', `/api/v1/users/${denunciaAbierta.userID}/denunciar`, {
+      motivo: $('den-motivo').value,
+      descripcion: texto,
+      trip_id: denunciaAbierta.tripID || '',
+    });
+    cerrarDenuncia();
+    toast(t('den.hecho.t'), parrafo(t('den.hecho.d')), 'bien');
+    await refrescar();
+    pintar();
+  } catch (e) {
+    explicarError(e);
+  } finally {
+    boton.disabled = false;
+    boton.textContent = antes;
+  }
+}
+
 /* ============ Arranque ============ */
 
 function horaPorDefecto() {
@@ -1197,6 +1377,11 @@ function conectar() {
   $('form-rec-pedir').addEventListener('submit', pedirRecuperacion);
   $('form-rec-cambiar').addEventListener('submit', cambiarContrasena);
   $('btn-aceptar-terminos').addEventListener('click', aceptarTerminos);
+  $('form-denuncia').addEventListener('submit', enviarDenuncia);
+  $('den-cancelar').addEventListener('click', cerrarDenuncia);
+  $('modal-denuncia').addEventListener('click', (e) => {
+    if (e.target === $('modal-denuncia')) cerrarDenuncia();
+  });
 
   // El enlace del correo puede abrirse con la app ya cargada: cambiar solo el
   // ancla no recarga nada, así que si no se atiende aquí, quien vuelve a la
@@ -1235,6 +1420,7 @@ function conectar() {
   // Escape cierra el acceso o la recuperación y vuelve a la portada.
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+    if (!$('modal-denuncia').hidden) { cerrarDenuncia(); return; }
     const abierto = !$('acceso').classList.contains('oculto') ||
       !$('recuperar').classList.contains('oculto');
     if (abierto) volverAPortada();

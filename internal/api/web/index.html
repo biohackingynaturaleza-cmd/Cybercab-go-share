@@ -36,6 +36,13 @@
         <div class="ahorro-pie" id="ahorro-pie"></div>
       </section>
 
+      <!-- Suspensión. Lo primero de todo: explica por qué nada más funciona. -->
+      <section class="tarjeta oculto" id="caja-suspension"
+               style="border-color:var(--peligro);background:#1e1013">
+        <h2 style="color:var(--peligro)" data-t="susp.titulo"></h2>
+        <p class="tenue" id="suspension-texto"></p>
+      </section>
+
       <!-- Condiciones nuevas: hay que aceptarlas para seguir usando la app. -->
       <section class="tarjeta destaca oculto" id="caja-terminos">
         <h2 data-t="legal.nuevas.t"></h2>
@@ -52,6 +59,7 @@
       <!-- Confianza -->
       <section class="tarjeta destaca oculto" id="confianza">
         <h2><span data-t="confianza.titulo"></span> <span class="nivel nivel-nuevo" id="mi-nivel"></span></h2>
+        <p id="mi-nota" style="margin:-4px 0 10px"></p>
         <div class="progreso"><i id="progreso-barra" style="width:0%"></i></div>
         <p id="confianza-texto"></p>
         <ul class="comprobaciones" id="lista-comprobaciones"></ul>
@@ -115,6 +123,14 @@
       <section class="oculto" id="resultados-caja">
         <h2 id="resultados-titulo">Resultados</h2>
         <div class="resultados" id="resultados"></div>
+      </section>
+
+      <!-- Viajes hechos que esperan opinión. Lo primero de la lista porque es
+           lo único que se pierde si no se hace hoy: la memoria de cómo fue. -->
+      <section class="tarjeta destaca oculto" id="valorar-caja">
+        <h2 data-t="val.titulo"></h2>
+        <p class="tenue" data-t="val.explica"></p>
+        <div id="valorar-lista"></div>
       </section>
 
       <section class="oculto" id="incidencias-caja">
@@ -255,6 +271,36 @@
       </div>
     </div>
   </main>
+</div>
+
+<!-- Denunciar. Va en un diálogo y no en un enlace directo a propósito: hay que
+     elegir un motivo y contar qué pasó, y sin las dos cosas la denuncia no se
+     puede revisar. -->
+<div class="modal" id="modal-denuncia" hidden role="dialog" aria-modal="true" aria-labelledby="den-titulo">
+  <form class="modal-caja" id="form-denuncia" novalidate>
+    <h2 id="den-titulo" data-t="den.titulo"></h2>
+    <p id="den-sub"></p>
+    <div class="campo">
+      <label for="den-motivo" data-t="den.motivo"></label>
+      <select id="den-motivo">
+        <option value="seguridad" data-t="den.m.seguridad"></option>
+        <option value="identidad" data-t="den.m.identidad"></option>
+        <option value="conducta" data-t="den.m.conducta"></option>
+        <option value="no_presentado" data-t="den.m.no_presentado"></option>
+        <option value="cobro" data-t="den.m.cobro"></option>
+        <option value="otra" data-t="den.m.otra"></option>
+      </select>
+    </div>
+    <div class="campo">
+      <label for="den-texto" data-t="den.que"></label>
+      <textarea id="den-texto" required minlength="10" maxlength="2000" data-t-ph="den.que.ph"></textarea>
+    </div>
+    <p class="tenue" data-t="den.aviso"></p>
+    <div class="modal-pie">
+      <button type="button" class="btn-2" id="den-cancelar" data-t="den.cancelar"></button>
+      <button type="submit" class="btn-1" id="den-enviar" data-t="den.enviar"></button>
+    </div>
+  </form>
 </div>
 
 <script src="/i18n.js"></script>

@@ -10,6 +10,7 @@ import (
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/billing"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/domain"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/fleet"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/notify"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/pricing"
 )
 
@@ -142,7 +143,45 @@ func (s *Service) CompletarViaje(in CierreInput) (*domain.Trip, []billing.Entry,
 	if err := s.store.UpdateTrip(t); err != nil {
 		return nil, nil, err
 	}
+
+	// El historial de todos los que iban dentro. Se suma aquí y solo aquí:
+	// cerrar el trayecto es una transición que su propio estado impide repetir,
+	// así que nadie puede contar dos veces el mismo viaje.
+	participantes := []string{t.HostID}
+	for _, b := range confirmadas {
+		participantes = append(participantes, b.PassengerID)
+	}
+	if err := s.store.IncrementarViajes(participantes); err != nil {
+		s.log("no se pudo apuntar el viaje en el historial", err)
+	}
+
+	s.pedirValoraciones(t, confirmadas)
 	return t, entries, nil
+}
+
+// pedirValoraciones le pide su opinión a cada pareja del viaje.
+//
+// Sin este recordatorio casi nadie valora, y una reputación sostenida por tres
+// valoraciones no dice nada de nadie.
+func (s *Service) pedirValoraciones(t *domain.Trip, confirmadas []*domain.Booking) {
+	host, err := s.store.GetUser(t.HostID)
+	if err != nil {
+		s.log("no se pudo pedir la valoración", err)
+		return
+	}
+	for _, b := range confirmadas {
+		pasajero, err := s.store.GetUser(b.PassengerID)
+		if err != nil {
+			continue
+		}
+		datos := s.datosDelViaje(t)
+		datos["quien"] = pasajero.Name
+		s.avisar(t.HostID, notify.SucesoPideValoracion, datos)
+
+		delPasajero := s.datosDelViaje(t)
+		delPasajero["quien"] = host.Name
+		s.avisar(b.PassengerID, notify.SucesoPideValoracion, delPasajero)
+	}
 }
 
 // partesFinales decide lo que paga cada pasajero al cerrar el viaje.

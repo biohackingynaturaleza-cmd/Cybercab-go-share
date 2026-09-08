@@ -24,6 +24,13 @@ type escenario struct {
 func nuevoEscenario(t *testing.T, vehicle domain.VehicleType, exige trust.Level) escenario {
 	t.Helper()
 	svc, identidad := newTestService(t)
+	return escenarioCon(t, svc, identidad, vehicle, exige)
+}
+
+// escenarioCon monta el mismo escenario sobre un servicio ya construido, para
+// las pruebas que necesitan además un grabador de avisos.
+func escenarioCon(t *testing.T, svc *Service, identidad *trust.Manual, vehicle domain.VehicleType, exige trust.Level) escenario {
+	t.Helper()
 
 	hostSess, err := svc.Register(RegisterInput{Name: "Ana", Email: "ana@example.com", Password: testPassword, Idioma: "es", AceptaTerminos: true})
 	if err != nil {
