@@ -241,15 +241,25 @@ func TestLoLiquidadoNoEntraEnElSiguienteCierre(t *testing.T) {
 	desde := entries[0].CreatedAt.Add(-time.Hour)
 	hasta := entries[0].CreatedAt.Add(time.Hour)
 
-	if _, err := e.svc.LiquidarPeriodo(desde, hasta); err != nil {
+	primera, err := e.svc.LiquidarPeriodo(desde, hasta)
+	if err != nil {
 		t.Fatalf("primer cierre: %v", err)
 	}
-	segunda, err := e.svc.LiquidarPeriodo(desde, hasta)
-	if err != nil {
-		t.Fatalf("segundo cierre: %v", err)
+	// Repetir el cierre no puede producir un segundo cobro, ni por el mismo
+	// periodo ni por uno que lo abarque.
+	if _, err := e.svc.LiquidarPeriodo(desde, hasta); err == nil {
+		t.Fatal("el mismo periodo se liquidó dos veces")
 	}
-	if segunda.ApuntesLiquidados != 0 || len(segunda.Instrucciones) != 0 {
-		t.Fatalf("el segundo cierre volvería a cobrar: %+v", segunda)
+	if _, err := e.svc.LiquidarPeriodo(desde.Add(-time.Hour), hasta.Add(time.Hour)); !errors.Is(err, ErrNadaQueLiquidar) {
+		t.Fatalf("un periodo mayor = %v, esperaba que no quedara nada por liquidar", err)
+	}
+
+	todas, err := e.svc.Liquidaciones()
+	if err != nil {
+		t.Fatalf("Liquidaciones: %v", err)
+	}
+	if len(todas) != 1 || todas[0].ID != primera.ID {
+		t.Fatalf("liquidaciones = %d: solo puede haber quedado la primera", len(todas))
 	}
 }
 

@@ -48,6 +48,11 @@ const (
 	// SucesoContrasenaCambiada avisa de que la contraseña acaba de cambiar. Es
 	// el aviso que descubre un robo de cuenta.
 	SucesoContrasenaCambiada Suceso = "contrasena_cambiada"
+	// SucesoLiquidacionCobro le dice a alguien lo que se le va a cobrar al
+	// cerrarse el periodo.
+	SucesoLiquidacionCobro Suceso = "liquidacion_cobro"
+	// SucesoLiquidacionPago le dice lo que se le va a pagar.
+	SucesoLiquidacionPago Suceso = "liquidacion_pago"
 	// SucesoViajeCompartido le manda a un contacto de confianza el enlace del
 	// viaje que alguien acaba de reservar.
 	SucesoViajeCompartido Suceso = "viaje_compartido"

@@ -76,6 +76,7 @@ func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger, o
 	mux.Handle("POST /api/v1/me/correo/reenviar", protegida(s.reenviarCodigoCorreo))
 
 	// Seguridad: a quién avisar, cómo compartir el viaje y el botón.
+	mux.Handle("GET /api/v1/me/saldo", protegida(s.miSaldo))
 	mux.Handle("GET /api/v1/me/viajes-activos", protegida(s.misViajesActivos))
 	mux.Handle("GET /api/v1/me/contactos", protegida(s.misContactos))
 	mux.Handle("POST /api/v1/me/contactos", protegida(s.añadirContacto))
@@ -98,6 +99,9 @@ func NewServer(svc *service.Service, verifier auth.Verifier, log *slog.Logger, o
 	mux.Handle("POST /api/v1/users/{id}/denunciar", protegida(s.denunciar))
 
 	// Operaciones: la cola de revisión. Solo existe con token configurado.
+	mux.HandleFunc("GET /api/v1/operaciones/liquidaciones", s.operaciones(s.listarLiquidaciones))
+	mux.HandleFunc("POST /api/v1/operaciones/liquidaciones/cerrar", s.operaciones(s.cerrarPeriodos))
+	mux.HandleFunc("POST /api/v1/operaciones/liquidaciones/{id}/ejecutar", s.operaciones(s.ejecutarLiquidacion))
 	mux.HandleFunc("GET /api/v1/operaciones/alertas", s.operaciones(s.colaDeAlertas))
 	mux.HandleFunc("POST /api/v1/operaciones/alertas/{id}/atender", s.operaciones(s.atenderAlerta))
 	mux.HandleFunc("GET /api/v1/operaciones/denuncias", s.operaciones(s.colaDeDenuncias))
@@ -620,8 +624,11 @@ func writeError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrIncidenciaResuelta), errors.Is(err, store.ErrIncidenciaEnCurso):
 		writeProblem(w, http.StatusConflict, err.Error())
-	case errors.Is(err, service.ErrAlertaResuelta):
+	case errors.Is(err, service.ErrAlertaResuelta),
+		errors.Is(err, store.ErrPeriodoYaLiquidado):
 		writeProblem(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrNadaQueLiquidar):
+		writeProblem(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, service.ErrDenunciaResuelta), errors.Is(err, store.ErrYaValorado):
 		writeProblem(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrViajeNoValorable):

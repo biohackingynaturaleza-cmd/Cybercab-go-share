@@ -16,6 +16,7 @@ import (
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/geo"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/matching"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/notify"
+	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/pagos"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/pricing"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/routing"
 	"github.com/biohackingynaturaleza-cmd/cybercab-go-share/internal/store"
@@ -49,6 +50,10 @@ type Config struct {
 	// PublicURL es la dirección desde la que se llega a la app, para los
 	// enlaces de los correos.
 	PublicURL string
+	// Pagos mueve el dinero de las liquidaciones. Por defecto, el proveedor
+	// que solo anota: describe el movimiento y no lo ejecuta, para que el libro
+	// no diga nunca que se cobró algo que nadie ha visto.
+	Pagos pagos.Proveedor
 	// Identidad verifica quién es cada persona. Sin él no se pueden acreditar
 	// identidades, y ningún trayecto que exija nivel verificado admitirá a
 	// nadie: es deliberado, preferimos no dar viajes a darlos sin verificar.
@@ -87,6 +92,9 @@ func New(s store.Store, cfg Config) *Service {
 	}
 	if cfg.Avisos == nil {
 		cfg.Avisos = notify.Silencio{}
+	}
+	if cfg.Pagos == nil {
+		cfg.Pagos = pagos.Anotado{}
 	}
 	if cfg.PublicURL == "" {
 		cfg.PublicURL = "http://localhost:8080"

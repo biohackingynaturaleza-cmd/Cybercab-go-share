@@ -75,6 +75,16 @@ type Store interface {
 	PendingEntries() ([]billing.Entry, error)
 	MarkSettled(entryIDs []string, settlementID string) error
 
+	// Liquidaciones
+	// GuardarLiquidacion escribe la liquidación, sus instrucciones y el cierre
+	// de sus apuntes en una sola transacción: las tres cosas o ninguna.
+	GuardarLiquidacion(l *billing.Liquidacion, apuntes []string) error
+	GetLiquidacion(id string) (*billing.Liquidacion, error)
+	Liquidaciones() ([]*billing.Liquidacion, error)
+	InstruccionesDe(userID string) ([]billing.Instruccion, error)
+	ActualizarInstruccion(liquidacionID string, in billing.Instruccion) error
+	ActualizarEstadoLiquidacion(id string, estado billing.EstadoLiquidacion, at time.Time) error
+
 	// Recuperación de contraseña
 	CrearRecuperacion(r *domain.Recuperacion) error
 	RecuperacionPorHash(hash string) (*domain.Recuperacion, error)
@@ -171,6 +181,7 @@ type Memory struct {
 	contactos      map[string]*domain.ContactoDeConfianza
 	seguimientos   map[string]*domain.Seguimiento
 	alertas        map[string]*domain.Alerta
+	liquidaciones  map[string]*billing.Liquidacion
 	denuncias      map[string]*domain.Denuncia
 	// blocks son pares "bloqueador|bloqueado".
 	blocks map[string]bool
@@ -194,6 +205,7 @@ func NewMemory() *Memory {
 		contactos:      map[string]*domain.ContactoDeConfianza{},
 		seguimientos:   map[string]*domain.Seguimiento{},
 		alertas:        map[string]*domain.Alerta{},
+		liquidaciones:  map[string]*billing.Liquidacion{},
 		denuncias:      map[string]*domain.Denuncia{},
 		blocks:         map[string]bool{},
 	}

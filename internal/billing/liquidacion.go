@@ -30,13 +30,42 @@ const (
 	Pago  TipoInstruccion = "pago"
 )
 
+// EstadoPendiente es el estado inicial de una instrucción: descrita y sin pasar
+// todavía por el procesador. Los demás estados los pone él (ver internal/pagos),
+// y por eso el campo es una cadena y no un tipo de este paquete: quién mueve el
+// dinero es una decisión que vive detrás de esa frontera, no aquí.
+const EstadoPendiente = "pendiente"
+
 // Instruccion es lo que se le pide al procesador. La app no mueve dinero: lo
 // describe.
 type Instruccion struct {
+	// ID identifica la instrucción una vez guardada. Vacío mientras la
+	// liquidación es solo un cálculo.
+	ID          string          `json:"id,omitempty"`
 	UserID      string          `json:"user_id"`
 	Tipo        TipoInstruccion `json:"tipo"`
 	AmountCents int64           `json:"amount_cents"`
+	Estado      string          `json:"estado,omitempty"`
+	// Ref es la referencia del movimiento en el procesador.
+	Ref string `json:"ref,omitempty"`
+	// Motivo explica un rechazo, o por qué un movimiento se quedó anotado.
+	Motivo      string    `json:"motivo,omitempty"`
+	EjecutadaAt time.Time `json:"ejecutada_at,omitzero"`
 }
+
+// EstadoLiquidacion es en qué punto está el dinero de un periodo.
+type EstadoLiquidacion string
+
+const (
+	// LiquidacionCalculada tiene las instrucciones escritas y esperando
+	// procesador. Es donde se quedan mientras no haya uno configurado.
+	LiquidacionCalculada EstadoLiquidacion = "calculada"
+	// LiquidacionEjecutada movió todo su dinero.
+	LiquidacionEjecutada EstadoLiquidacion = "ejecutada"
+	// LiquidacionParcial movió una parte. Es el estado que hay que mirar: si
+	// se cobró a unos y no se pagó a otros, alguien está esperando su dinero.
+	LiquidacionParcial EstadoLiquidacion = "parcial"
+)
 
 // Liquidacion es el resultado de cerrar un periodo.
 type Liquidacion struct {
@@ -46,9 +75,36 @@ type Liquidacion struct {
 	Posiciones    []Posicion    `json:"posiciones"`
 	Instrucciones []Instruccion `json:"instrucciones"`
 	// ComisionTotalCents es nuestro ingreso bruto del periodo.
-	ComisionTotalCents int64     `json:"comision_total_cents"`
-	ApuntesLiquidados  int       `json:"apuntes_liquidados"`
-	CreatedAt          time.Time `json:"created_at"`
+	ComisionTotalCents int64             `json:"comision_total_cents"`
+	ApuntesLiquidados  int               `json:"apuntes_liquidados"`
+	Estado             EstadoLiquidacion `json:"estado"`
+	CreatedAt          time.Time         `json:"created_at"`
+	EjecutadaAt        time.Time         `json:"ejecutada_at,omitzero"`
+}
+
+// EstadoSegunInstrucciones deduce el estado del conjunto a partir de sus
+// movimientos. Se calcula en vez de guardarse a mano para que no pueda decir
+// "ejecutada" mientras una instrucción sigue sin moverse.
+func (l *Liquidacion) EstadoSegunInstrucciones(ejecutado string) EstadoLiquidacion {
+	if len(l.Instrucciones) == 0 {
+		// Un periodo que se compensa entero no mueve dinero, y no tener nada
+		// que mover es haberlo hecho todo.
+		return LiquidacionEjecutada
+	}
+	var hechas int
+	for _, i := range l.Instrucciones {
+		if i.Estado == ejecutado {
+			hechas++
+		}
+	}
+	switch hechas {
+	case 0:
+		return LiquidacionCalculada
+	case len(l.Instrucciones):
+		return LiquidacionEjecutada
+	default:
+		return LiquidacionParcial
+	}
 }
 
 // Liquidar compensa los apuntes pendientes y produce las instrucciones de un
@@ -103,6 +159,7 @@ func Liquidar(id string, entries []Entry, desde, hasta time.Time, now time.Time)
 		ID: id, Desde: desde, Hasta: hasta,
 		ComisionTotalCents: comisionTotal,
 		ApuntesLiquidados:  len(incluidos),
+		Estado:             LiquidacionCalculada,
 		CreatedAt:          now,
 	}
 	for _, userID := range orden {
@@ -112,11 +169,15 @@ func Liquidar(id string, entries []Entry, desde, hasta time.Time, now time.Time)
 
 		switch {
 		case p.NetoCents > 0:
-			out.Instrucciones = append(out.Instrucciones,
-				Instruccion{UserID: userID, Tipo: Cobro, AmountCents: p.NetoCents})
+			out.Instrucciones = append(out.Instrucciones, Instruccion{
+				UserID: userID, Tipo: Cobro, AmountCents: p.NetoCents,
+				Estado: EstadoPendiente,
+			})
 		case p.NetoCents < 0:
-			out.Instrucciones = append(out.Instrucciones,
-				Instruccion{UserID: userID, Tipo: Pago, AmountCents: -p.NetoCents})
+			out.Instrucciones = append(out.Instrucciones, Instruccion{
+				UserID: userID, Tipo: Pago, AmountCents: -p.NetoCents,
+				Estado: EstadoPendiente,
+			})
 			// Neto cero no genera instrucción: lo que se compensa no se mueve,
 			// y cada movimiento que se evita es una comisión que no se paga.
 		}

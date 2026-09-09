@@ -134,6 +134,30 @@ have stopped working.
 If this was not you, reset your password now to lock the account again:
 {enlace}`,
 		},
+		SucesoLiquidacionCobro: {
+			"Your {periodo} balance: {importe}",
+			`Hi {nombre},
+
+The {periodo} period is closed. Your balance is {importe}, and that is what
+will be charged.
+
+It is a single amount, not one charge per ride: everything you owed and
+everything you were owed has been netted out first, and what cancels out never
+moves. That is why the fee stays as low as it is.
+
+The breakdown is in the app: {enlace}`,
+		},
+		SucesoLiquidacionPago: {
+			"We owe you {importe} for {periodo}",
+			`Hi {nombre},
+
+The {periodo} period is closed, and it ends in your favour: {importe}.
+
+It is a single amount, not one payment per ride — what you owed and what you
+were owed has been netted out first.
+
+The breakdown is in the app: {enlace}`,
+		},
 		SucesoViajeCompartido: {
 			"{quien} is sharing a ride to {destino}",
 			`Hi {nombre},
@@ -366,6 +390,30 @@ recuperación ha dejado de servir.
 
 Si no has sido tú, cambia la contraseña ahora para recuperar el control de la
 cuenta: {enlace}`,
+		},
+		SucesoLiquidacionCobro: {
+			"Tu saldo de {periodo}: {importe}",
+			`Hola {nombre}:
+
+Se ha cerrado el periodo de {periodo}. Tu saldo es de {importe}, y eso es lo
+que se te va a cobrar.
+
+Es un solo importe, no un cargo por viaje: antes se ha compensado todo lo que
+debías con todo lo que te debían, y lo que se cancela no se mueve. Por eso la
+comisión es la que es y no más.
+
+El desglose está en la app: {enlace}`,
+		},
+		SucesoLiquidacionPago: {
+			"Te debemos {importe} de {periodo}",
+			`Hola {nombre}:
+
+Se ha cerrado el periodo de {periodo}, y sale a tu favor: {importe}.
+
+Es un solo importe, no un pago por viaje: antes se ha compensado lo que debías
+con lo que te debían.
+
+El desglose está en la app: {enlace}`,
 		},
 		SucesoViajeCompartido: {
 			"{quien} comparte un viaje a {destino}",

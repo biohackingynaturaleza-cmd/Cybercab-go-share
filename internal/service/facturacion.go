@@ -254,31 +254,6 @@ func (s *Service) costeDelViaje(t *domain.Trip) int64 {
 	return s.tripCost(t.DistanceKm())
 }
 
-// LiquidarPeriodo cierra un periodo: compensa saldos y produce una sola
-// instrucción de cobro o pago por persona.
-func (s *Service) LiquidarPeriodo(desde, hasta time.Time) (*billing.Liquidacion, error) {
-	if !hasta.After(desde) {
-		return nil, fmt.Errorf("%w: el periodo está del revés", domain.ErrValidation)
-	}
-	pendientes, err := s.store.PendingEntries()
-	if err != nil {
-		return nil, err
-	}
-
-	liq, incluidos, err := billing.Liquidar(newID("liq"), pendientes, desde, hasta, s.cfg.Now())
-	if err != nil {
-		return nil, err
-	}
-	// Los apuntes se marcan después de que la liquidación haya cuadrado: si
-	// cuadrar fallara, nada se da por cobrado.
-	if len(incluidos) > 0 {
-		if err := s.store.MarkSettled(incluidos, liq.ID); err != nil {
-			return nil, err
-		}
-	}
-	return liq, nil
-}
-
 // AhorroDeAgrupar mide lo que se ahorra liquidando por periodos en lugar de
 // cobrar viaje a viaje, sobre los apuntes que hay ahora mismo.
 func (s *Service) AhorroDeAgrupar(desde, hasta time.Time) (*billing.Ahorro, error) {

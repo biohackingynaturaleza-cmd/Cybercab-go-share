@@ -550,8 +550,9 @@ func esViolacionUnica(err error, constraint string) bool {
 // esquema intacto pero borra su contenido.
 func (p *Postgres) TruncateAll(ctx context.Context) error {
 	_, err := p.pool.Exec(ctx,
-		`TRUNCATE alertas, seguimientos, contactos_confianza, codigos_correo, denuncias,
-			valoraciones, password_resets, user_blocks, identity_checks,
+		`TRUNCATE instrucciones_liquidacion, liquidaciones, alertas, seguimientos,
+			contactos_confianza, codigos_correo, denuncias, valoraciones,
+			password_resets, user_blocks, identity_checks, ledger_entries,
 			bookings, trips, users RESTART IDENTITY CASCADE`)
 	return err
 }
