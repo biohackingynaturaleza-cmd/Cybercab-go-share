@@ -89,10 +89,18 @@ func main() {
 		}
 	}()
 
+	// El cierre de periodos va dentro del propio binario, no en un cron del
+	// sistema: desplegar la app no puede exigir además configurar una tarea
+	// aparte que, si falta, hace que nadie cobre y nadie se entere.
+	fondo, pararFondo := context.WithCancel(context.Background())
+	defer pararFondo()
+	go service.NuevoProgramador(svc).Arrancar(fondo)
+
 	// Apagado ordenado: dejamos terminar las peticiones en vuelo.
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
+	pararFondo()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

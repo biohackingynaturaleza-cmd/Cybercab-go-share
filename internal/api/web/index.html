@@ -45,6 +45,19 @@
         <div class="ahorro-pie" id="ahorro-pie"></div>
       </section>
 
+      <!-- El saldo del periodo. Junto al ahorro porque son las dos caras de lo
+           mismo: lo que te llevas y lo que te toca poner. -->
+      <section class="tarjeta oculto" id="caja-saldo">
+        <h2 data-t="saldo.titulo"></h2>
+        <div class="saldo-cifra" id="saldo-cifra"></div>
+        <p class="tenue" id="saldo-cuando"></p>
+        <dl class="saldo-desglose" id="saldo-desglose"></dl>
+        <div class="oculto" id="saldo-movs-caja">
+          <h3 class="saldo-sub" data-t="saldo.movimientos"></h3>
+          <ul class="saldo-movs" id="saldo-movs"></ul>
+        </div>
+      </section>
+
       <!-- Suspensión. Lo primero de todo: explica por qué nada más funciona. -->
       <section class="tarjeta oculto" id="caja-suspension"
                style="border-color:var(--peligro);background:#1e1013">

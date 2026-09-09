@@ -763,3 +763,38 @@ textarea:focus { border-color: var(--acento); outline: none; }
   color: var(--peligro); border-radius: var(--r); padding: 12px 13px;
   font: 600 13px var(--sans); cursor: pointer; margin-top: 12px; text-align: left;
 }
+
+/* ============ Saldo del periodo ============ */
+
+.saldo-cifra { font: 700 26px/1 var(--mono); letter-spacing: -.02em; margin-bottom: 4px; }
+.saldo-cifra.debe { color: var(--n-basico); }
+.saldo-cifra.cobra { color: var(--dinero); }
+.saldo-cifra.cero { color: var(--suave); font-size: 19px; }
+
+/* El desglose no es decoración: "debes 2 €" sin decir que son 12 menos 10 no
+   se entiende, y lo que no se entiende se reclama. */
+.saldo-desglose {
+  display: grid; grid-template-columns: 1fr auto; gap: 5px 12px;
+  margin: 13px 0 0; font-size: 13px;
+}
+.saldo-desglose dt { color: var(--suave); }
+.saldo-desglose dd { margin: 0; font: 13px var(--mono); text-align: right; }
+.saldo-desglose .total { border-top: 1px solid var(--borde); padding-top: 7px; margin-top: 2px; }
+.saldo-desglose dt.total { color: var(--texto); font-weight: 620; }
+.saldo-desglose dd.total { color: var(--texto); font-weight: 700; }
+
+.saldo-sub {
+  margin: 18px 0 8px; font: 650 10px/1 var(--mono);
+  text-transform: uppercase; letter-spacing: .09em; color: var(--tenue);
+}
+.saldo-movs { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.saldo-movs li {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--capa-1); border: 1px solid var(--borde);
+  border-radius: var(--r); padding: 9px 12px; font-size: 13px;
+}
+.saldo-movs b { margin-left: auto; font: 600 13px var(--mono); }
+.saldo-movs .estado {
+  font: 10px var(--mono); text-transform: uppercase; letter-spacing: .07em;
+  color: var(--tenue);
+}

@@ -34,15 +34,35 @@ func (s *Server) listarLiquidaciones(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// cerrarPeriodos lanza a mano el cierre de los periodos vencidos, sin esperar
-// al programador.
-func (s *Server) cerrarPeriodos(w http.ResponseWriter, _ *http.Request) {
-	hechas, err := s.svc.LiquidarPendientes(time.Now().UTC())
+// cerrarPeriodos lanza a mano el cierre, sin esperar al programador.
+//
+// Sin parámetros cierra los periodos ya vencidos, que es lo que hace el
+// programador. Con desde y hasta cierra ese periodo concreto, incluido el mes
+// en curso: hace falta para cerrar a mano cuando algo se ha arreglado y no se
+// quiere esperar al día 1.
+func (s *Server) cerrarPeriodos(w http.ResponseWriter, r *http.Request) {
+	desde, hasta := r.URL.Query().Get("desde"), r.URL.Query().Get("hasta")
+	if desde == "" && hasta == "" {
+		hechas, err := s.svc.LiquidarPendientes(time.Now().UTC())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"liquidaciones": nonNil(hechas)})
+		return
+	}
+
+	d, h, err := periodoDe(r, time.Now().UTC())
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "fechas no válidas: "+err.Error())
+		return
+	}
+	liq, err := s.svc.LiquidarPeriodo(d, h)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"liquidaciones": nonNil(hechas)})
+	writeJSON(w, http.StatusOK, map[string]any{"liquidaciones": []any{liq}})
 }
 
 // ejecutarLiquidacion manda sus instrucciones al procesador de pagos.

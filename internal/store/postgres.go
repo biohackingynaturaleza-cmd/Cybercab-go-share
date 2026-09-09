@@ -546,6 +546,19 @@ func esViolacionUnica(err error, constraint string) bool {
 		strings.Contains(pgErr.ConstraintName, constraint)
 }
 
+// ExisteTabla dice si una tabla está en el esquema. Solo para pruebas: sirve
+// para comprobar que una migración de borrado hizo su trabajo.
+func (p *Postgres) ExisteTabla(nombre string) bool {
+	var existe bool
+	if err := p.pool.QueryRow(context.Background(),
+		`SELECT EXISTS (SELECT 1 FROM information_schema.tables
+			WHERE table_schema = current_schema() AND table_name = $1)`, nombre).
+		Scan(&existe); err != nil {
+		return false
+	}
+	return existe
+}
+
 // TruncateAll vacía todas las tablas de datos. Solo para pruebas: deja el
 // esquema intacto pero borra su contenido.
 func (p *Postgres) TruncateAll(ctx context.Context) error {

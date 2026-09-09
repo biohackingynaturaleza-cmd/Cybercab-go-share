@@ -209,6 +209,7 @@ no se haya viajado todavía— el ahorro *previsto* de los viajes ya reservados.
 | `POST` | `/api/v1/me/terminos` | Aceptar la redacción vigente de las condiciones |
 | `POST` | `/api/v1/me/correo/confirmar` | Acreditar el buzón con el código |
 | `POST` | `/api/v1/me/correo/reenviar` | Pedir otro código |
+| `GET` | `/api/v1/me/saldo` | Lo que debo o me deben, y mis movimientos |
 
 ### Seguridad
 | Método | Ruta | Qué hace |
@@ -252,6 +253,9 @@ Solo existen con `OPS_TOKEN` configurado; sin él devuelven `404`.
 
 | Método | Ruta | Qué hace |
 |---|---|---|
+| `GET` | `/api/v1/operaciones/liquidaciones` | Periodos cerrados y su procesador |
+| `POST` | `/api/v1/operaciones/liquidaciones/cerrar` | Cerrar lo vencido, o un periodo concreto con `desde`/`hasta` |
+| `POST` | `/api/v1/operaciones/liquidaciones/{id}/ejecutar` | Mandar sus movimientos al procesador |
 | `GET` | `/api/v1/operaciones/alertas` | Alertas de emergencia abiertas |
 | `POST` | `/api/v1/operaciones/alertas/{id}/atender` | Cerrarla |
 | `GET` | `/api/v1/operaciones/denuncias` | Cola de revisión, lo urgente primero |
@@ -290,6 +294,7 @@ internal/routing/    rutas reales por carretera (OSRM) con respaldo
 internal/matching/   qué trayectos encajan con una búsqueda, y en qué orden
 internal/fleet/      frontera con la flota de robotaxis
 internal/billing/    libro de apuntes, compensación y liquidación
+internal/pagos/      frontera con el procesador que mueve el dinero
 internal/notify/     avisos por correo, bilingües
 internal/ratelimit/  techo de peticiones por clave
 internal/simulacion/ medición de la ocupación de la flota
@@ -407,6 +412,53 @@ Dos propiedades que el código garantiza:
   de dinero.
 
 Ver [`docs/modelo-de-negocio.md`](docs/modelo-de-negocio.md).
+
+## La liquidación: cómo se cierra un periodo
+
+El coste de cada viaje se anota en el libro cuando el trayecto se cierra, y no
+se cobra nada en ese momento. Una vez al mes se compensan todos los saldos y
+sale **un solo movimiento por persona**: quien organizó tres viajes y se subió a
+otros dos no recibe cinco cargos, recibe la diferencia. Lo que se cancela no se
+mueve, y cada movimiento que se evita es una comisión del procesador que no se
+paga — de ahí salen los 21,56 $ frente a los 0,00 $ de cobrar viaje a viaje.
+
+**Calcular y cobrar son dos pasos.** Cerrar el periodo produce las
+instrucciones y las guarda; ejecutarlas es una llamada aparte. Calcular es
+reversible mientras nadie lo haya ejecutado, y cobrar no.
+
+**Se guarda todo.** Antes la liquidación se calculaba y se perdía: los apuntes
+quedaban marcados como cobrados y las instrucciones solo existían en la
+respuesta HTTP de quien la lanzó, así que no había a qué reintentar ni forma de
+saber si a alguien se le llegó a cobrar. Ahora la liquidación, sus instrucciones
+y el cierre de sus apuntes se escriben **en una sola transacción**: las tres
+cosas o ninguna. Una liquidación guardada cuyos apuntes siguieran abiertos los
+cobraría otra vez el mes siguiente.
+
+**Un periodo se liquida una vez.** Lo garantiza un índice único sobre las
+fechas, no una comprobación previa: es la barrera que impide que dos ejecuciones
+simultáneas del programador cobren el mismo mes dos veces.
+
+**Reintentar no duplica un cargo.** Cada movimiento lleva una clave de
+idempotencia —liquidación más persona— que viaja con él al procesador. Un
+movimiento fallido no detiene a los demás: a los otros hay que pagarles igual, y
+el que falló se reintenta luego con su misma clave.
+
+**El programador vive dentro del binario**, y mira cada hora en vez de una vez
+al mes: un cron mensual que se pierde su única cita —porque el servidor estaba
+reiniciándose— no vuelve a intentarlo hasta el mes siguiente. Si estuvo parado
+dos meses, al arrancar los cierra los dos. El mes en curso no se toca: todavía
+le pueden entrar apuntes.
+
+### Quién mueve el dinero
+
+Nadie, todavía. `internal/pagos` es la frontera con el procesador, y el
+proveedor por defecto **anota el movimiento y no lo ejecuta**, y lo dice en la
+respuesta. Es deliberado que no finja: un proveedor de mentira que devolviera
+«cobrado» dejaría el libro diciendo que se cobró un dinero que nadie ha visto, y
+ese error solo se descubre cuando alguien reclama.
+
+Enchufar Stripe Connect es implementar una interfaz de dos métodos. Hasta
+entonces las liquidaciones se calculan, se guardan y se quedan en `calculada`.
 
 ## El botón de emergencia, y lo que no hace
 
@@ -581,6 +633,9 @@ sin forma de renovarla.
 2. **Revisión legal de las condiciones y la privacidad.** El texto está escrito
    y describe el servicio real; falta un abogado de Texas, la entidad y las
    direcciones de contacto.
-3. **Pagos.** Cobrar el reparto y liquidarlo con quien organiza.
+3. **Enchufar Stripe Connect.** El circuito entero está —libro, compensación,
+   liquidación guardada, instrucciones con clave de idempotencia y un
+   programador que cierra los periodos solo—; falta el proveedor que mueva el
+   dinero, y eso depende de la cuenta.
 4. **Un proveedor de identidad real.** Es lo único que separa la app de poder
    admitir usuarios de verdad.

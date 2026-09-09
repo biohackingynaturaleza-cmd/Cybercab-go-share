@@ -24,6 +24,7 @@ const estado = {
   resultados: [],
   pendientes: [],
   contactos: [],
+  saldo: null,
   maxContactos: 3,
   activos: [],
   seleccionado: null,
@@ -293,7 +294,7 @@ async function refrescar() {
   estado.resumen = resumen;
   await Promise.all([
     cargarMisTrayectos(), cargarIncidencias(), cargarPendientesDeValorar(),
-    cargarContactos(), cargarViajesActivos(),
+    cargarContactos(), cargarViajesActivos(), cargarSaldo(),
   ]);
 }
 
@@ -1177,6 +1178,7 @@ function pintar() {
     pintarSuspension();
     pintarContactos();
     pintarViajeActivo();
+    pintarSaldo();
     pintarMisTrayectos();
   } else {
     $('btn-entrar-cab').addEventListener('click', () => mostrarAcceso(false));
@@ -1709,6 +1711,68 @@ async function falsaAlarma() {
   } finally {
     boton.disabled = false;
   }
+}
+
+/* ============ Saldo del periodo ============ */
+
+async function cargarSaldo() {
+  try {
+    estado.saldo = await api('GET', '/api/v1/me/saldo');
+  } catch {
+    estado.saldo = null;
+  }
+}
+
+/* La tarjeta solo aparece cuando hay algo que contar. A quien no ha compartido
+   ningún viaje, un "0,00 $" no le dice nada: le ocupa sitio. */
+function pintarSaldo() {
+  const s = estado.saldo;
+  const hayAlgo = s && (s.apuntes > 0 || (s.movimientos || []).length > 0);
+  $('caja-saldo').classList.toggle('oculto', !hayAlgo);
+  if (!hayAlgo) return;
+
+  const neto = s.pendiente_cents;
+  const cifra = $('saldo-cifra');
+  cifra.className = 'saldo-cifra ' + (neto > 0 ? 'debe' : neto < 0 ? 'cobra' : 'cero');
+  cifra.textContent = neto > 0 ? t('saldo.debes', { importe: euros(neto) })
+    : neto < 0 ? t('saldo.tedebemos', { importe: euros(-neto) })
+      : t('saldo.cero');
+
+  $('saldo-cuando').textContent = s.apuntes
+    ? t('saldo.cierra', { fecha: soloFecha(new Date(s.proximo_cierre)) })
+    : t('saldo.nadapendiente');
+
+  $('saldo-desglose').innerHTML = desgloseDelSaldo(s, neto);
+
+  const movs = s.movimientos || [];
+  $('saldo-movs-caja').classList.toggle('oculto', !movs.length);
+  $('saldo-movs').innerHTML = movs.map((m) => `
+    <li>
+      <span>${escapar(t('saldo.mov.' + m.tipo))}</span>
+      <span class="estado">${escapar(t('saldo.estado.' + m.estado, {}, m.estado))}</span>
+      <b>${escapar(euros(m.amount_cents))}</b>
+    </li>`).join('');
+}
+
+/* desgloseDelSaldo arma las líneas que de verdad dicen algo.
+   Las que valen cero se caen: una fila "0,00 $" no explica nada, y con el signo
+   delante queda además un "−0,00 $" que no significa nada en ningún idioma. */
+function desgloseDelSaldo(s, neto) {
+  if (!s.apuntes) return '';
+  const filas = [
+    [t('saldo.debe'), s.debe_cents - s.comision_cents, ''],
+    [t('saldo.comision'), s.comision_cents, ''],
+    [t('saldo.leden'), s.le_deben_cents, '−'],
+  ].filter(([, cents]) => cents !== 0);
+
+  return filas.map(([etiqueta, cents, signo]) =>
+    `<dt>${escapar(etiqueta)}</dt><dd>${signo}${escapar(euros(cents))}</dd>`).join('') +
+    `<dt class="total">${escapar(t('saldo.neto'))}</dt>` +
+    `<dd class="total">${escapar(euros(Math.abs(neto)))}</dd>`;
+}
+
+function soloFecha(d) {
+  return d.toLocaleDateString(idioma(), { day: 'numeric', month: 'long' });
 }
 
 /* ============ Arranque ============ */

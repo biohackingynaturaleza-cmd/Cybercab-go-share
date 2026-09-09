@@ -81,6 +81,24 @@ const TEXTOS = {
     'aviso.demasiados.t': 'Too many attempts',
     'aviso.demasiados.d': 'Wait {segundos} s and try again.',
 
+    'saldo.titulo': 'Your balance this period',
+    'saldo.debes': 'You owe {importe}',
+    'saldo.tedebemos': 'We owe you {importe}',
+    'saldo.cero': 'Your balance is zero',
+    'saldo.cierra': 'The period closes on {fecha}. It is settled as a single amount, not one charge per ride.',
+    'saldo.nadapendiente': 'Nothing pending. Your last movements are below.',
+    'saldo.debe': 'Rides you shared',
+    'saldo.comision': 'Service fee',
+    'saldo.leden': 'Rides you gave',
+    'saldo.neto': 'Net',
+    'saldo.movimientos': 'Settled periods',
+    'saldo.mov.cobro': 'Charged to you',
+    'saldo.mov.pago': 'Paid to you',
+    'saldo.estado.pendiente': 'pending',
+    'saldo.estado.anotado': 'not charged yet',
+    'saldo.estado.ejecutado': 'done',
+    'saldo.estado.fallido': 'failed',
+
     'seg.titulo': 'Your ride right now',
     'seg.compartir': 'Share this ride',
     'seg.otro': 'New link',
@@ -394,6 +412,24 @@ const TEXTOS = {
     'aviso.demasiados.t': 'Demasiados intentos',
     'aviso.demasiados.d': 'Espera {segundos} s y vuelve a probar.',
 
+    'saldo.titulo': 'Tu saldo de este periodo',
+    'saldo.debes': 'Debes {importe}',
+    'saldo.tedebemos': 'Te debemos {importe}',
+    'saldo.cero': 'Tu saldo está a cero',
+    'saldo.cierra': 'El periodo se cierra el {fecha}. Se liquida en un solo importe, no con un cargo por viaje.',
+    'saldo.nadapendiente': 'No tienes nada pendiente. Abajo están tus últimos movimientos.',
+    'saldo.debe': 'Viajes que compartiste',
+    'saldo.comision': 'Comisión del servicio',
+    'saldo.leden': 'Viajes que diste',
+    'saldo.neto': 'Neto',
+    'saldo.movimientos': 'Periodos liquidados',
+    'saldo.mov.cobro': 'Se te cobra',
+    'saldo.mov.pago': 'Se te paga',
+    'saldo.estado.pendiente': 'pendiente',
+    'saldo.estado.anotado': 'sin cobrar todavía',
+    'saldo.estado.ejecutado': 'hecho',
+    'saldo.estado.fallido': 'falló',
+
     'seg.titulo': 'Tu viaje ahora mismo',
     'seg.compartir': 'Compartir este viaje',
     'seg.otro': 'Enlace nuevo',
@@ -660,8 +696,12 @@ function cambiarIdioma(nuevo) {
 
 /* t traduce una clave y sustituye los huecos {así}. Si falta una clave devuelve
    la propia clave: mejor ver el fallo que un hueco en blanco. */
-function t(clave, vars) {
-  let texto = TEXTOS[IDIOMA][clave] ?? TEXTOS.en[clave] ?? clave;
+function t(clave, vars, porDefecto) {
+  // El valor por defecto existe para lo que viene del servidor y puede crecer
+  // sin que la interfaz se entere: el estado de un movimiento lo pone el
+  // procesador de pagos, y enseñar la clave a pelo sería peor que enseñar su
+  // nombre en crudo.
+  let texto = TEXTOS[IDIOMA][clave] ?? TEXTOS.en[clave] ?? porDefecto ?? clave;
   if (vars) {
     for (const [k, v] of Object.entries(vars)) texto = texto.replaceAll(`{${k}}`, v);
   }

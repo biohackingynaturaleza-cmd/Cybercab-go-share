@@ -1,0 +1,14 @@
+-- Fuera la tabla settlements.
+--
+-- La creó la migración 003 y no llegó a usarla ni una línea de Go: la
+-- liquidación se calculaba y se perdía. La 012 puso en su sitio `liquidaciones`
+-- e `instrucciones_liquidacion`, que sí guardan el periodo cerrado y, sobre
+-- todo, el estado de cada movimiento.
+--
+-- Se borra en vez de dejarla ahí porque una tabla vacía con nombre de algo
+-- importante es una trampa: el siguiente que abra el esquema tiene que
+-- averiguar cuál de las dos manda, y lo normal es equivocarse.
+--
+-- ledger_entries.settlement_id no la referenciaba —nunca hubo clave ajena—, así
+-- que los apuntes ya liquidados no se ven afectados.
+DROP TABLE IF EXISTS settlements;
